@@ -1,0 +1,258 @@
+<muclient>
+  <plugin
+    name="SlopeTrain"
+    author="Kanaye"
+    id="3668d613691c941bb5f2478c"
+    language="Lua"
+    purpose="A plugin to help you lead a slope train"
+    date_written="2025-3-24 17:59:57"
+    requires="5.07"
+    version="1.0"
+  >
+    <description trim="y">
+    <![CDATA[
+    +-------------------------[SlopeTrain Plugin]-------------------------+
+    |                                                                     |
+    |        Use this plugin to manage the slope train in Icefall!        |
+    |        Direct your group and provide notifications when moving.     |
+    |                   (edit line 167 to buy other pass!)                |
+    +---------------------------------------------------------------------+
+    ]]>
+    </description>
+  </plugin>
+
+  <aliases>
+    <!-- Alias for South direction (Chutes) -->
+    <alias
+      match="^ices"
+      enabled="y"
+      regexp="y"
+      send_to="12"
+      sequence="100"
+      script="GoSouth"
+    />
+    
+    <!-- Alias for East direction (Hatchery) -->
+    <alias
+      match="^icee$"
+      enabled="y"
+      regexp="y"
+      send_to="12"
+      sequence="100"
+      script="GoEast"
+    />
+    
+    <!-- Alias for West direction (Chutes) -->
+    <alias
+      match="^icew$"
+      enabled="y"
+      regexp="y"
+      send_to="12"
+      sequence="100"
+      script="GoWest"
+    />
+  </aliases>
+
+  <script>
+    <![CDATA[
+      -- Ensure the gmcphelper module is loaded
+      require "gmcphelper"
+
+      -- Variable to store the leader's name
+      local group_leader = ""
+
+      -- Function to check if the current player is the leader
+      function is_leader()
+        local playerName = gmcp("char.base.name")  -- Get the player's name
+        return playerName == group_leader  -- Check if the player is the group leader
+      end
+
+      -- Function to check the current leader
+      function check_leader_on_enter_room()
+        local room_num = tonumber(gmcp("room.info.num")) -- Check the room number as a number
+        group_leader = gmcp("group.leader")  -- Store the group leader name
+        
+        if room_num == 38719 then
+          Note("Type icew (Kill), icee (Hatchery) or ices (Chutes) to move to specific slope!")
+        end
+      end
+	  
+      -- Function to check if the player is in the Icefall area
+      function is_in_icefall()
+        local current_zone = gmcp("room.info.zone") -- Assume GMCP provides the zone name
+        return current_zone == "icefall"
+      end
+
+      function LeaderEnterSlingshot(name, line, wildcards)
+        -- Check if the first wildcard matches the group leader
+        if wildcards[1] == group_leader then
+          SendNoEcho("enter slingshot")  -- Send the command to enter the slingshot
+        end
+      end
+
+      function SouthTimer()
+          SendNoEcho("south")
+          SendNoEcho("gt @C(@DSlopeTrain@C) @RCHOO CHOO@W, the train is moving @CSOUTH@W!@Y")
+      end
+      
+      function GoSouth()
+		if is_in_icefall() then
+		  check_leader_on_enter_room()
+          Execute("mapper goto 38813")
+          if is_leader() and is_in_icefall() then
+              DoAfterSpecial(2, "SouthTimer()", sendto.script)
+		  else
+		      SendNoEcho("south")
+          end
+		end
+      end
+
+      function EastTimer()
+          SendNoEcho("east")
+          SendNoEcho("gt @C(@DSlopeTrain@C) @WCHOO CHOO, the train is moving @CEAST@W!")
+      end
+      
+      function GoEast()
+	    if is_in_icefall() then
+		  check_leader_on_enter_room()
+          Execute("mapper goto 38813")
+          if is_leader() and is_in_icefall() then
+              DoAfterSpecial(2, "EastTimer()", sendto.script)
+		  else
+		      SendNoEcho("east")
+          end
+		end
+      end
+
+      function WestTimer()
+          SendNoEcho("west")
+          SendNoEcho("gt @C(@DSlopeTrain@C) @MCHOO CHOO@W, the train is moving @CWEST@W!@Y")
+      end
+      
+      function GoWest()
+	    if is_in_icefall() then
+		  check_leader_on_enter_room()
+          Execute("mapper goto 38813")
+          if is_leader() and is_in_icefall() then
+              DoAfterSpecial(2, "WestTimer()", sendto.script)
+		  else
+		      SendNoEcho("west")
+          end
+		end
+      end
+	  
+      -- Function for leader entering Iced Fish Hatchery (East)
+      function LeaderEnterHatchery(name, line, wildcards)
+        if wildcards[1] == group_leader then
+          SendNoEcho("east")
+        end
+      end
+
+      -- Function for leader entering Chutes and Empty Bladders (South)
+      function LeaderEnterChutes(name, line, wildcards)
+        if wildcards[1] == group_leader then
+          SendNoEcho("south")
+        end
+      end
+
+      -- Function for leader entering King of the Kill (West)
+      function LeaderEnterKill(name, line, wildcards)
+        if wildcards[1] == group_leader then
+          SendNoEcho("west")
+        end
+      end
+
+      -- Function for expired pass action
+      function ExpiredPassAction()
+        -- Move to the specified location
+        Execute("mapper goto 38714")
+        -- Send the command to buy a new pass
+        SendNoEcho("buy 250usespass")
+		-- Put the pass on the keyring
+		SendNoEcho("keyring put pass")
+      end
+
+    ]]>
+  </script>
+
+  <triggers>
+    <!-- Trigger for leader entering slingshot -->
+    <trigger
+      name="LeaderEntersSlingshot"
+      match="^([^ ]+) enters a gigantic slingshot, ready for another trip down the Avalanche Slalom!$"
+      enabled="y"
+      group="slopeTrain"
+      regexp="y"
+      send_to="12"
+      ignore_case="y"
+      sequence="100"
+      script="LeaderEnterSlingshot"
+    />
+
+    <!-- Trigger to set leader when entering the slingshot area -->
+    <trigger
+      name="SlingshotLeader"
+      match="^A gigantic slingshot aims for the top of the Avalanche Slalom\.|The Icefall Bulletin Board is waiting for you to read board\.|.*Thin wooden planks extend as the only means of travel here\.|.*More crimson dyed snow is present in the powdery region heading north\.|.*Red snowflakes litter the air\, mixed with the regularly yet plain colored|.*Packed with fresh powder\, the top of the mountain is a comfortable plateau$"
+      enabled="y"
+      group="slopeTrain"
+      regexp="y"
+      send_to="12"
+      ignore_case="y"
+      sequence="100"
+      script="check_leader_on_enter_room"
+    />
+	
+    <!-- Trigger for Iced Fish Hatchery -->
+    <trigger
+      name="LeaderEntersHatchery"
+      match="^([^ ]+) enters Iced Fish Hatchery.$"
+      enabled="y"
+      group="slopeTrain"
+      regexp="y"
+      send_to="12"
+      ignore_case="y"
+      sequence="100"
+      script="LeaderEnterHatchery"
+    />
+
+    <!-- Trigger for Chutes and Empty Bladders -->
+    <trigger
+      name="LeaderEntersChutes"
+      match="^([^ ]+) enters Chutes and Empty Bladders.$"
+      enabled="y"
+      group="slopeTrain"
+      regexp="y"
+      send_to="12"
+      ignore_case="y"
+      sequence="100"
+      script="LeaderEnterChutes"
+    />
+
+    <!-- Trigger for King of the Kill -->
+    <trigger
+      name="LeaderEntersKill"
+      match="^([^ ]+) enters King of the Kill.$"
+      enabled="y"
+      group="slopeTrain"
+      regexp="y"
+      send_to="12"
+      ignore_case="y"
+      sequence="100"
+      script="LeaderEnterKill"
+    />
+
+    <!-- Trigger for expired pass -->
+    <trigger
+      name="ExpiredPass"
+      match="^A gruff ski patrol destroys your expired pass\!|You must have a ski pass in order to enter the powerup slopes\.$"
+      enabled="y"
+      group="slopeTrain"
+      regexp="y"
+      send_to="12"
+      ignore_case="y"
+      sequence="100"
+      script="ExpiredPassAction"
+    />
+  </triggers>
+
+</muclient>
