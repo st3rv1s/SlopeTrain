@@ -7,7 +7,7 @@
     purpose="A plugin to help you lead a slope train"
     date_written="2025-3-24 17:59:57"
     requires="5.07"
-    version="1.11"
+    version="1.12"
   >
     <description trim="y">
     <![CDATA[
