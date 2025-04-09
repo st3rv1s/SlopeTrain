@@ -223,7 +223,7 @@
 	  check_leader_on_enter_room()
         Execute("mapper goto 38813")
         if is_leader() and is_in_icefall() then
-            DoAfterSpecial(1.5, "SouthTimer()", sendto.script)
+            DoAfterSpecial(2, "SouthTimer()", sendto.script)
 	  else
 	      SendNoEcho("south")
         end
@@ -245,7 +245,7 @@
 		  check_leader_on_enter_room()
           Execute("mapper goto 38813")
           if is_leader() and is_in_icefall() then
-              DoAfterSpecial(1.5, "EastTimer()", sendto.script)
+              DoAfterSpecial(2, "EastTimer()", sendto.script)
 		  else
 		      SendNoEcho("east")
           end
@@ -267,7 +267,7 @@
 		  check_leader_on_enter_room()
           Execute("mapper goto 38813")
           if is_leader() and is_in_icefall() then
-              DoAfterSpecial(1.5, "WestTimer()", sendto.script)
+              DoAfterSpecial(2, "WestTimer()", sendto.script)
 		  else
 		      SendNoEcho("west")
           end
