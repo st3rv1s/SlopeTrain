@@ -180,13 +180,16 @@
       -- Function to check if the current player is the leader
       function is_leader()
         local playerName = gmcp("char.base.name")  -- Get the player's name
+		group_leader = gmcp("group.leader")  -- Store the group leader name
         return playerName == group_leader  -- Check if the player is the group leader
       end
 
       -- Function to check the current leader
       function check_leader_on_enter_room()
         local room_num = tonumber(gmcp("room.info.num")) -- Check the room number as a number
+		local playerName = gmcp("char.base.name")  -- Get the player's name
         group_leader = gmcp("group.leader")  -- Store the group leader name
+        return playerName == group_leader  -- Check if the player is the group leader
         
         if room_num == 38719 then
           Note("Type icew (Kill), icee (Hatchery) or ices (Chutes) to move to specific slope!")
