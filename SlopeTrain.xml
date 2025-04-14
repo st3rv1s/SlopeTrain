@@ -7,7 +7,7 @@
     purpose="A plugin to help you lead a slope train"
     date_written="2025-3-24 17:59:57"
     requires="5.07"
-    version="1.15"
+    version="1.20"
   >
     <description trim="y">
     <![CDATA[
@@ -22,7 +22,7 @@
   </plugin>
 
   <aliases>
-    <!-- Alias for South direction -->
+    <!-- Alias for South direction (Chutes) -->
     <alias
       match="^ices"
       enabled="y"
@@ -32,7 +32,7 @@
       script="GoSouth"
     />
     
-    <!-- Alias for East direction -->
+    <!-- Alias for East direction (Hatchery) -->
     <alias
       match="^icee$"
       enabled="y"
@@ -42,7 +42,7 @@
       script="GoEast"
     />
     
-    <!-- Alias for West direction -->
+    <!-- Alias for West direction (Chutes) -->
     <alias
       match="^icew$"
       enabled="y"
@@ -68,215 +68,327 @@
       regexp="y"
       sequence="99"
       script="update_install_alias"
-    /> 
+    />
   </aliases>
 
   <script>
     <![CDATA[
-    require("wait")
-    require("async")
-    json = require("json")
-    require "gmcphelper"
-
-    plugin_url = "https://raw.githubusercontent.com/st3rv1s/SlopeTrain/refs/heads/main/SlopeTrain.xml"
-    SetVariable("DownloadURL", plugin_url)
-    plugin_protocol = "HTTPS"
-    plugin_prefix = "[SlopeTrain]"
-
-    local group_leader = ""
-    local slope_successful = false
-
-    function cnote(string)
-      AnsiNote(stylesToANSI(ColoursToStyles(string)))
-    end
-
-    -- Function to check if we are the leader
-    function is_leader()
-      group_leader = gmcp("group.leader") or ""
-      local playerName = gmcp("char.base.name") or ""
-      return playerName == group_leader
-    end
 	
-    function FollowLeaderIntoSlingshot(name, line, wildcards)
-      if not is_leader() and wildcards[1] == group_leader then
-        SendNoEcho("enter slingshot")
-      end
-    end
-
-    function send_gt_message(direction)
-      local playerName = gmcp("char.base.name") or ""
-      local choo_color = "@Y"  -- Default to yellow
-    
-      if direction == "SOUTH" then
-        choo_color = "@R"
-      elseif direction == "WEST" then
-        choo_color = "@M"
-      elseif direction == "EAST" then
-        choo_color = "@Y"
-      end
-    
-      local msg = string.format("@C(@x244SlopeTrain@C) @WThe SlopeTrain is moving @C%s@W. %sCHOO CHOO!!!@Y", direction, choo_color)
-    
-      if playerName == gmcp("group.leader") then
-        -- Delay by 2 seconds using DoAfterSpecial (passing the message properly quoted)
-        DoAfterSpecial(2, "SendGTMessageDelayed", 12, string.format("%q", msg))
-      end
-    end
-	
-    function SendGTMessageDelayed(message)
-      SendNoEcho("gt " .. message)
-    end
-    
-    -- Go south alias function
-    function GoSouth()
-      if is_in_icefall() then
-        Execute("mapper goto 38813")
-        SendNoEcho("south")
-        if is_leader() then
-          send_gt_message("south")
-        end
-      end
-    end
-    
-    -- Go east alias function
-    function GoEast()
-      if is_in_icefall() then
-        Execute("mapper goto 38813")
-        SendNoEcho("east")
-        if is_leader() then
-          send_gt_message("east")
-        end
-      end
-    end
-    
-    -- Go west alias function
-    function GoWest()
-      if is_in_icefall() then
-        Execute("mapper goto 38813")
-        SendNoEcho("west")
-        if is_leader() then
-          send_gt_message("west")
-        end
-      end
-    end
-
-    -- Check if we are in Icefall zone
-    function is_in_icefall()
-      local current_zone = gmcp("room.info.zone")
-      return current_zone == "icefall"
-    end
-
-    -- Function for expired pass action
-    function ExpiredPassAction()
-      -- Move to the specified location
-      Execute("mapper goto 38714")
-      -- Send the command to buy a new pass
-      SendNoEcho("buy 250usespass")
-      -- Put the pass on the keyring
-      SendNoEcho("keyring put pass")
-    end
-	
-    ----------------------- Plugin Update Code -----------------------
-    -- Code taken from Durel's dinv plugin, originally via Crowley
+     ----------------------- Plugin Update Code -----------------------
+     -- Code taken from Durel's dinv plugin, originally via Crowley
     require("wait")
     require("async")
     json = require("json")
     
-    plugin_url = "https://raw.githubusercontent.com/st3rv1s/SlopeTrain/refs/heads/main/SlopeTrain.xml"
-    SetVariable("DownloadURL", plugin_url)
-    plugin_protocol = "HTTPS"
-    plugin_prefix = "[SlopeTrain]"
-    
-    function update_check_alias()
-        update_plugin("check")
-        ColourNote("white", "", plugin_prefix .. " Checking for updated version...")
-    end
-    
-    function update_install_alias()
-        update_plugin("install")
-        ColourNote("white", "", plugin_prefix .. " Checking for and installing updated version...")
-    end
-    
-    function reload_plugin()
-        local scriptPrefix = GetAlphaOption("script_prefix")
-        local retval
-    
-        -- If the user has not already specified the script prefix for this version of mush, pick a
-        -- reasonable default value
-        if (scriptPrefix == "") then
-            scriptPrefix = "\\\\\\"
-            SetAlphaOption("script_prefix", scriptPrefix)
-        end
-    
-        -- Tell mush to reload the plugin in one second.  We can't do it directly here because a
-        -- plugin can't unload itself.  Even if it could, how could it tell mush to load it again
-        -- if it weren't installed? 
-        retval = Execute(scriptPrefix.."DoAfterSpecial(0.1, \"ReloadPlugin('"..GetPluginID().."')\", sendto.script)")
-    end
-    
-    function update_plugin(mode)
-        update_mode = mode
-    
-        wait.make(get_plugin_file)
-    end
-    
-    function get_plugin_file()
-        local urlThread = async.request(plugin_url, plugin_protocol)
-    
-        if not urlThread then
-            note_error("Couldn't create async url request.")
-            return
-        end
-    
-        local timeout = 10
-        local totTime = 0
-        while (urlThread:alive() and totTime < timeout) do
-            wait.time(0.1)
-            totTime = totTime + 0.1
-        end
-    
-        local remoteRet, pluginData, status, headers, fullStatus = urlThread:join()
-    
-        if not status then
-            ColourNote("red", "", plugin_prefix .. " Couldn't download plugin file. No status code.")
-            
-            return
-        end
-    
-        if (status ~= 200) then
-            ColourNote("red", "", plugin_prefix .. " Plugin file request status code: " .. status .. ": " .. fullStatus)
-            return
-        end
+     plugin_url = "https://raw.githubusercontent.com/st3rv1s/SlopeTrain/refs/heads/main/SlopeTrain.xml"
+     SetVariable("DownloadURL", plugin_url)
+     plugin_protocol = "HTTPS"
+     plugin_prefix = "[SlopeTrain]"
+     
+     function update_check_alias()
+         update_plugin("check")
+         ColourNote("white", "", plugin_prefix .. " Checking for updated version...")
+     end
+     
+     function update_install_alias()
+         update_plugin("install")
+         ColourNote("white", "", plugin_prefix .. " Checking for and installing updated version...")
+     end
+     
+     function reload_plugin()
+         local scriptPrefix = GetAlphaOption("script_prefix")
+         local retval
+     
+         -- If the user has not already specified the script prefix for this version of mush, pick a
+         -- reasonable default value
+         if (scriptPrefix == "") then
+             scriptPrefix = "\\\\\\"
+             SetAlphaOption("script_prefix", scriptPrefix)
+         end
+     
+         -- Tell mush to reload the plugin in one second.  We can't do it directly here because a
+         -- plugin can't unload itself.  Even if it could, how could it tell mush to load it again
+         -- if it weren't installed? 
+         retval = Execute(scriptPrefix.."DoAfterSpecial(0.1, \"ReloadPlugin('"..GetPluginID().."')\", sendto.script)")
+     end
+     
+     function update_plugin(mode)
+         update_mode = mode
+     
+         wait.make(get_plugin_file)
+     end
+     
+     function get_plugin_file()
+         local urlThread = async.request(plugin_url, plugin_protocol)
+     
+         if not urlThread then
+             note_error("Couldn't create async url request.")
+             return
+         end
+     
+         local timeout = 10
+         local totTime = 0
+         while (urlThread:alive() and totTime < timeout) do
+             wait.time(0.1)
+             totTime = totTime + 0.1
+         end
+     
+         local remoteRet, pluginData, status, headers, fullStatus = urlThread:join()
+     
+         if not status then
+             ColourNote("red", "", plugin_prefix .. " Couldn't download plugin file. No status code.")
+             
+             return
+         end
+     
+         if (status ~= 200) then
+             ColourNote("red", "", plugin_prefix .. " Plugin file request status code: " .. status .. ": " .. fullStatus)
+             return
+         end
+         
+         local currentVersion = GetPluginInfo(GetPluginID(), 19) or 0
+         local currentVerStr  = string.format("%1.3f", currentVersion)
+         local remoteVerStr   = string.match(pluginData, '%s%s+version="([0-9%.]+)"')
+         local remoteVersion  = tonumber(remoteVerStr or "") or 0
+     
+         if remoteVersion == currentVersion then
+             ColourNote("white", "", plugin_prefix .. " You are running the most recent version (v" .. currentVerStr .. ")")
+         elseif (remoteVersion < currentVersion) then
+             ColourNote("white", "", plugin_prefix .. " You have a newer version than is publicly available. (v" .. currentVerStr .. ")")
+         elseif (update_mode == "check") then
+             ColourNote("white", "", plugin_prefix .. " You are running v" .. currentVerStr .. ", but there's a newer version v" .. remoteVerStr)
+         elseif (update_mode == "install") then
+             ColourNote("white", "", plugin_prefix .. " Updating plugin from version " .. currentVerStr .. " to version " .. remoteVerStr) 
+     
+             local pluginFile = GetPluginInfo(GetPluginID(), 6)
+             local file = io.open(pluginFile, "wb")
+             file:write(pluginData)
+             file:close()
+             reload_plugin()
+         else
+             ColourNote("red", "", plugin_prefix .. " Invalid update mode: " .. update_mode)
+         end
+     end
+     ----------------------- End Plugin Update Code -----------------------
+
+      -- Ensure the gmcphelper module is loaded
+      require "gmcphelper"
+
+      -- Variable to store the leader's name
+      local group_leader = ""
+	  
+	  local slope_successful = false
+
+      -- Function to check if the current player is the leader
+      function is_leader()
+        local playerName = gmcp("char.base.name")  -- Get the player's name
+        return playerName == group_leader  -- Check if the player is the group leader
+      end
+
+      -- Function to check the current leader
+      function check_leader_on_enter_room()
+        local room_num = tonumber(gmcp("room.info.num")) -- Check the room number as a number
+        group_leader = gmcp("group.leader")  -- Store the group leader name
         
-        local currentVersion = GetPluginInfo(GetPluginID(), 19) or 0
-        local currentVerStr  = string.format("%1.3f", currentVersion)
-        local remoteVerStr   = string.match(pluginData, '%s%s+version="([0-9%.]+)"')
-        local remoteVersion  = tonumber(remoteVerStr or "") or 0
-    
-        if remoteVersion == currentVersion then
-            ColourNote("white", "", plugin_prefix .. " You are running the most recent version (v" .. currentVerStr .. ")")
-        elseif (remoteVersion < currentVersion) then
-            ColourNote("white", "", plugin_prefix .. " You have a newer version than is publicly available. (v" .. currentVerStr .. ")")
-        elseif (update_mode == "check") then
-            ColourNote("white", "", plugin_prefix .. " You are running v" .. currentVerStr .. ", but there's a newer version v" .. remoteVerStr)
-        elseif (update_mode == "install") then
-            ColourNote("white", "", plugin_prefix .. " Updating plugin from version " .. currentVerStr .. " to version " .. remoteVerStr) 
-    
-            local pluginFile = GetPluginInfo(GetPluginID(), 6)
-            local file = io.open(pluginFile, "wb")
-            file:write(pluginData)
-            file:close()
-            reload_plugin()
-        else
-            ColourNote("red", "", plugin_prefix .. " Invalid update mode: " .. update_mode)
+        if room_num == 38719 then
+          Note("Type icew (Kill), icee (Hatchery) or ices (Chutes) to move to specific slope!")
         end
+      end
+	  
+      -- Function to check if the player is in the Icefall area
+      function is_in_icefall()
+        local current_zone = gmcp("room.info.zone") -- Assume GMCP provides the zone name
+        return current_zone == "icefall"
+      end
+
+      function LeaderEnterSlingshot(name, line, wildcards)
+        -- Check if the first wildcard matches the group leader
+        if wildcards[1] == group_leader then
+          SendNoEcho("enter slingshot")  -- Send the command to enter the slingshot
+        end
+      end
+	  
+    function SouthTimer()
+      if slope_successful then
+        SendNoEcho("south")
+        SendNoEcho("gt @C(@DSlopeTrain@C) @RCHOO CHOO@W, the train is moving @CSOUTH@W!@Y")
+        slope_successful = false -- Reset after use
+      else
+        SendNoEcho("south") -- Still move even if no confirmation
+      end
+    end	  
+      
+    function GoSouth()
+	if is_in_icefall() then
+	  check_leader_on_enter_room()
+        Execute("mapper goto 38813")
+        if is_leader() and is_in_icefall() then
+            DoAfterSpecial(2, "SouthTimer()", sendto.script)
+	  else
+	      SendNoEcho("south")
+        end
+	end
     end
-    ----------------------- End Plugin Update Code -----------------------
+	  
+    function EastTimer()
+      if slope_successful then
+        SendNoEcho("east")
+        SendNoEcho("gt @C(@DSlopeTrain@C) @YCHOO CHOO@W, the train is moving @CEAST@W!")
+        slope_successful = false -- Reset after use
+      else
+        SendNoEcho("east") -- Still move even if no confirmation
+      end
+    end	  
+      
+      function GoEast()
+	    if is_in_icefall() then
+		  check_leader_on_enter_room()
+          Execute("mapper goto 38813")
+          if is_leader() and is_in_icefall() then
+              DoAfterSpecial(2, "EastTimer()", sendto.script)
+		  else
+		      SendNoEcho("east")
+          end
+		end
+      end
+
+    function WestTimer()
+      if slope_successful then
+        SendNoEcho("west")
+        SendNoEcho("gt @C(@DSlopeTrain@C) @MCHOO CHOO@W, the train is moving @CWEST@W!@Y")
+        slope_successful = false -- Reset after use
+      else
+        SendNoEcho("west") -- Still move even if no confirmation
+      end
+    end
+      
+      function GoWest()
+	    if is_in_icefall() then
+		  check_leader_on_enter_room()
+          Execute("mapper goto 38813")
+          if is_leader() and is_in_icefall() then
+              DoAfterSpecial(2, "WestTimer()", sendto.script)
+		  else
+		      SendNoEcho("west")
+          end
+		end
+      end
+	  
+      -- Function for leader entering Iced Fish Hatchery (East)
+      function LeaderEnterHatchery(name, line, wildcards)
+        if wildcards[1] == group_leader then
+          SendNoEcho("east")
+        end
+      end
+
+      -- Function for leader entering Chutes and Empty Bladders (South)
+      function LeaderEnterChutes(name, line, wildcards)
+        if wildcards[1] == group_leader then
+          SendNoEcho("south")
+        end
+      end
+
+      -- Function for leader entering King of the Kill (West)
+      function LeaderEnterKill(name, line, wildcards)
+        if wildcards[1] == group_leader then
+          SendNoEcho("west")
+        end
+      end
+
+      -- Function for expired pass action
+      function ExpiredPassAction()
+        -- Move to the specified location
+        Execute("mapper goto 38714")
+        -- Send the command to buy a new pass
+        SendNoEcho("buy 250usespass")
+		-- Put the pass on the keyring
+		SendNoEcho("keyring put pass")
+      end
+	  
+    function MarkSlopeSuccess()
+      slope_successful = true
+    end
+	
     ]]>
   </script>
 
   <triggers>
-    <!-- No need for MarkSlopeSuccess, so we removed it. -->
+    <!-- Trigger for leader entering slingshot -->
+    <trigger
+      name="LeaderEntersSlingshot"
+      match="^([^ ]+) enters a gigantic slingshot, ready for another trip down the Avalanche Slalom!$"
+      enabled="y"
+      group="slopeTrain"
+      regexp="y"
+      send_to="12"
+      ignore_case="y"
+      sequence="100"
+      script="LeaderEnterSlingshot"
+    />
+
+    <!-- Trigger to set leader when entering the slingshot area -->
+    <trigger
+      name="SlingshotLeader"
+      match="^A gigantic slingshot aims for the top of the Avalanche Slalom\.|The Icefall Bulletin Board is waiting for you to read board\.|.*Thin wooden planks extend as the only means of travel here\.|.*More crimson dyed snow is present in the powdery region heading north\.|.*Red snowflakes litter the air\, mixed with the regularly yet plain colored|.*Packed with fresh powder\, the top of the mountain is a comfortable plateau$"
+      enabled="y"
+      group="slopeTrain"
+      regexp="y"
+      send_to="12"
+      ignore_case="y"
+      sequence="100"
+      script="check_leader_on_enter_room"
+    />
+	
+    <!-- Trigger for Iced Fish Hatchery -->
+    <trigger
+      name="LeaderEntersHatchery"
+      match="^([^ ]+) enters Iced Fish Hatchery.$"
+      enabled="y"
+      group="slopeTrain"
+      regexp="y"
+      send_to="12"
+      ignore_case="y"
+      sequence="100"
+      script="LeaderEnterHatchery"
+    />
+
+    <!-- Trigger for Chutes and Empty Bladders -->
+    <trigger
+      name="LeaderEntersChutes"
+      match="^([^ ]+) enters Chutes and Empty Bladders.$"
+      enabled="y"
+      group="slopeTrain"
+      regexp="y"
+      send_to="12"
+      ignore_case="y"
+      sequence="100"
+      script="LeaderEnterChutes"
+    />
+
+    <!-- Trigger for King of the Kill -->
+    <trigger
+      name="LeaderEntersKill"
+      match="^([^ ]+) enters King of the Kill.$"
+      enabled="y"
+      group="slopeTrain"
+      regexp="y"
+      send_to="12"
+      ignore_case="y"
+      sequence="100"
+      script="LeaderEnterKill"
+    />
+	
+<trigger
+  match="^A gruff ski patrol marks off one of your uses\.  \d+ left\.$"
+  enabled="y"
+  group="slopeTrain"
+  regexp="y"
+  send_to="12"
+  ignore_case="y"
+  sequence="100"
+  script="MarkSlopeSuccess"
+/>
+
     <!-- Trigger for expired pass -->
     <trigger
       name="ExpiredPass"
@@ -289,15 +401,6 @@
       sequence="100"
       script="ExpiredPassAction"
     />
-	
-    <trigger
-      name="FollowSlingshotLeader"
-      match="^(%a+) enters a gigantic slingshot, ready for another trip down the Avalanche Slalom!$"
-      enabled="y"
-      regexp="y"
-      send_to="12"
-      sequence="100"
-      script="FollowLeaderIntoSlingshot"
-    />
   </triggers>
+
 </muclient>
