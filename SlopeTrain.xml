@@ -200,8 +200,15 @@
         group_leader = gmcp("group.leader") or ""
         local player_name = gmcp("char.base.name") or ""
       
-        -- Show who's the leader (debug)
-		cnote("@C(@DSlopeTrain@C) @RYou: @W" .. player_name .. " @W| @GLeader: @C" .. group_leader .. "@Y")
+        -- Skip cnote if the room number is 38718 or 38720
+        if room_num == 38718 or room_num == 38720 then
+          return
+        end
+      
+        -- Only display cnote if the current player is NOT the leader
+        if player_name ~= group_leader then
+          cnote("@C(@DSlopeTrain@C) @WLeader: @C" .. group_leader)
+        end
       
         if room_num == 38719 then
           Note("Type icew (Kill), icee (Hatchery) or ices (Chutes) to move to specific slope!")
