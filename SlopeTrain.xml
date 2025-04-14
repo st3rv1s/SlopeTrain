@@ -207,7 +207,7 @@
       end
       if slope_successful then
         SendNoEcho("south")
-        SendNoEcho("gt @C(@DSlopeTrain@C) @RCHOO CHOO@W, the train is moving @CSOUTH@W!@Y")
+        SendNoEcho("gt @C(@DSlopeTrain@C) @WALL ABOARD! SlopeTrain moving @CSOUTH@W... @SCHOO CHOO!@Y")
         slope_successful = false -- Reset after use
       else
         SendNoEcho("south") -- Still move even if no confirmation
@@ -232,7 +232,7 @@
       end
       if slope_successful then
         SendNoEcho("east")
-        SendNoEcho("gt @C(@DSlopeTrain@C) @YCHOO CHOO@W, the train is moving @CEAST@W!")
+        SendNoEcho("gt @C(@DSlopeTrain@C) @WALL ABOARD! SlopeTrain moving @CEAST@W... @MCHOO CHOO!@Y")
         slope_successful = false -- Reset after use
       else
         SendNoEcho("east") -- Still move even if no confirmation
@@ -257,7 +257,7 @@
       end
       if slope_successful then
         SendNoEcho("west")
-        SendNoEcho("gt @C(@DSlopeTrain@C) @MCHOO CHOO@W, the train is moving @CWEST@W!@Y")
+        SendNoEcho("gt @C(@DSlopeTrain@C) @WALL ABOARD! SlopeTrain moving @CWEST@W... @BCHOO CHOO!@Y")
         slope_successful = false -- Reset after use
       else
         SendNoEcho("west") -- Still move even if no confirmation
