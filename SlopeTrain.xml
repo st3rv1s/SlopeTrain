@@ -94,7 +94,7 @@
         end
     
         -- Send the message with the dynamic CHOO CHOO color
-		local msg = string.format("@C(@x244SlopeTrain@C) @WThe SlopeTrain is moving @C%s@W. %sCHOO CHOO!!!@W", direction:upper(), choo_color)
+		local msg = string.format("@C(@x244SlopeTrain@C) @WThe SlopeTrain is moving @C%s@W. %sCHOO CHOO!!!@Y", direction:upper(), choo_color)
         SendNoEcho("gt " .. msg)
       end
     end
