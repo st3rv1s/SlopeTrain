@@ -231,80 +231,74 @@
     function SouthTimer()
       if slope_successful then
         SendNoEcho("south")
-        SendNoEcho("gt @C(@DSlopeTrain@C) @RCHOO CHOO@W, the train is moving @CSOUTH@W!@Y")
+        -- Only send GT message if you are the leader
+        if is_leader() then
+          SendNoEcho("gt @C(@DSlopeTrain@C) @RCHOO CHOO@W, the train is moving @CSOUTH@W!@Y")
+        end
         slope_successful = false -- Reset after use
       else
         SendNoEcho("south") -- Still move even if no confirmation
       end
-    end	  
-      
+    end
+    
     function GoSouth()
       if is_in_icefall() then
-        check_leader_on_enter_room()  -- Ensure group_leader is updated
-    
-        -- Add a slight delay before sending the message
-        DoAfterSpecial(0.2, "SendNoEcho('gt @C(@DSlopeTrain@C) @RCHOO CHOO@W, the train is moving @CSOUTH@W!@Y')", sendto.script)
-    
+        check_leader_on_enter_room()
         Execute("mapper goto 38813")
-        
         if is_leader() and is_in_icefall() then
-            DoAfterSpecial(2, "SouthTimer()", sendto.script)
+          DoAfterSpecial(2, "SouthTimer()", sendto.script)
         else
-            SendNoEcho("south")
+          SendNoEcho("south")
         end
       end
     end
-	  
+    
     function EastTimer()
       if slope_successful then
         SendNoEcho("east")
-        SendNoEcho("gt @C(@DSlopeTrain@C) @YCHOO CHOO@W, the train is moving @CEAST@W!")
+        -- Only send GT message if you are the leader
+        if is_leader() then
+          SendNoEcho("gt @C(@DSlopeTrain@C) @YCHOO CHOO@W, the train is moving @CEAST@W!")
+        end
         slope_successful = false -- Reset after use
       else
         SendNoEcho("east") -- Still move even if no confirmation
       end
-    end	  
-      
+    end
+    
     function GoEast()
       if is_in_icefall() then
-        check_leader_on_enter_room()  -- Ensure group_leader is updated
-        
-        -- Add a slight delay before sending the message
-        DoAfterSpecial(0.2, "SendNoEcho('gt @C(@DSlopeTrain@C) @YCHOO CHOO@W, the train is moving @CEAST@W!')", sendto.script)
-    
+        check_leader_on_enter_room()
         Execute("mapper goto 38813")
-        
         if is_leader() and is_in_icefall() then
-            DoAfterSpecial(2, "EastTimer()", sendto.script)
+          DoAfterSpecial(2, "EastTimer()", sendto.script)
         else
-            SendNoEcho("east")
+          SendNoEcho("east")
         end
       end
     end
-
+    
     function WestTimer()
       if slope_successful then
         SendNoEcho("west")
-        SendNoEcho("gt @C(@DSlopeTrain@C) @MCHOO CHOO@W, the train is moving @CWEST@W!@Y")
+        -- Only send GT message if you are the leader
+        if is_leader() then
+          SendNoEcho("gt @C(@DSlopeTrain@C) @MCHOO CHOO@W, the train is moving @CWEST@W!@Y")
+        end
         slope_successful = false -- Reset after use
       else
         SendNoEcho("west") -- Still move even if no confirmation
       end
     end
-      
+    
     function GoWest()
       if is_in_icefall() then
-        check_leader_on_enter_room()  -- Ensure group_leader is updated
-        
-        -- Add a slight delay before sending the message
-        DoAfterSpecial(0.2, "SendNoEcho('gt @C(@DSlopeTrain@C) @MCHOO CHOO@W, the train is moving @CWEST@W!@Y')", sendto.script)
-    
+        check_leader_on_enter_room()
         Execute("mapper goto 38813")
-        
         if is_leader() and is_in_icefall() then
-            DoAfterSpecial(2, "WestTimer()", sendto.script)
+          DoAfterSpecial(2, "WestTimer()", sendto.script)
         else
-            SendNoEcho("west")
+          SendNoEcho("west")
         end
       end
     end
