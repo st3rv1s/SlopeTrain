@@ -170,6 +170,12 @@
 
       local group_leader = ""
 	  local slope_successful = false
+	  
+      -- Function to check if the player is in the Icefall area
+      function is_in_icefall()
+        local current_zone = gmcp("room.info.zone") -- Assume GMCP provides the zone name
+        return current_zone == "icefall"
+      end
 
       -- Function to check if the current player is the leader
       function is_leader()
@@ -187,12 +193,6 @@
         end
       end
 	  
-      -- Function to check if the player is in the Icefall area
-      function is_in_icefall()
-        local current_zone = gmcp("room.info.zone") -- Assume GMCP provides the zone name
-        return current_zone == "icefall"
-      end
-
       function LeaderEnterSlingshot(name, line, wildcards)
         -- Check if the first wildcard matches the group leader
         if wildcards[1] == group_leader then
@@ -201,6 +201,10 @@
       end
 	  
     function SouthTimer()
+      -- Immediately set slope_successful to true when the leader moves
+      if is_leader() then
+        slope_successful = true
+      end
       if slope_successful then
         SendNoEcho("south")
         SendNoEcho("gt @C(@DSlopeTrain@C) @RCHOO CHOO@W, the train is moving @CSOUTH@W!@Y")
@@ -223,6 +227,9 @@
     end
 	  
     function EastTimer()
+      if is_leader() then
+        slope_successful = true
+      end
       if slope_successful then
         SendNoEcho("east")
         SendNoEcho("gt @C(@DSlopeTrain@C) @YCHOO CHOO@W, the train is moving @CEAST@W!")
@@ -245,6 +252,9 @@
       end
 
     function WestTimer()
+      if is_leader() then
+        slope_successful = true
+      end
       if slope_successful then
         SendNoEcho("west")
         SendNoEcho("gt @C(@DSlopeTrain@C) @MCHOO CHOO@W, the train is moving @CWEST@W!@Y")
@@ -300,22 +310,6 @@
     function MarkSlopeSuccess()
       slope_successful = true
     end
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
 	
 	
 	
