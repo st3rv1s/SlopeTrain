@@ -7,7 +7,7 @@
     purpose="A plugin to help you lead a slope train"
     date_written="2025-3-24 17:59:57"
     requires="5.07"
-    version="1.14"
+    version="1.15"
   >
     <description trim="y">
     <![CDATA[
@@ -96,25 +96,35 @@
       local playerName = gmcp("char.base.name") or ""
       return playerName == group_leader
     end
-
-    -- Send GT message on move with dynamic color for CHOO CHOO
-    function send_gt_message(direction)
-      if is_leader() then
-        local choo_color = "@W"  -- Default color (white)
-    
-        -- Set CHOO CHOO color based on direction
-        if direction == "south" then
-          choo_color = "@R"  -- Red for South
-        elseif direction == "west" then
-          choo_color = "@M"  -- Magenta for West
-        elseif direction == "east" then
-          choo_color = "@Y"  -- Yellow for East
-        end
-    
-        -- Send the message with the dynamic CHOO CHOO color
-		local msg = string.format("@C(@x244SlopeTrain@C) @WThe SlopeTrain is moving @C%s@W. %sCHOO CHOO!!!@Y", direction:upper(), choo_color)
-        SendNoEcho("gt " .. msg)
+	
+    function FollowLeaderIntoSlingshot(name, line, wildcards)
+      if not is_leader() and wildcards[1] == group_leader then
+        SendNoEcho("enter slingshot")
       end
+    end
+
+    function send_gt_message(direction)
+      local playerName = gmcp("char.base.name") or ""
+      local choo_color = "@Y"  -- Default to yellow
+    
+      if direction == "SOUTH" then
+        choo_color = "@R"
+      elseif direction == "WEST" then
+        choo_color = "@M"
+      elseif direction == "EAST" then
+        choo_color = "@Y"
+      end
+    
+      local msg = string.format("@C(@x244SlopeTrain@C) @WThe SlopeTrain is moving @C%s@W. %sCHOO CHOO!!!@Y", direction, choo_color)
+    
+      if playerName == gmcp("group.leader") then
+        -- Delay by 2 seconds using DoAfterSpecial (passing the message properly quoted)
+        DoAfterSpecial(2, "SendGTMessageDelayed", 12, string.format("%q", msg))
+      end
+    end
+	
+    function SendGTMessageDelayed(message)
+      SendNoEcho("gt " .. message)
     end
     
     -- Go south alias function
@@ -278,6 +288,16 @@
       ignore_case="y"
       sequence="100"
       script="ExpiredPassAction"
+    />
+	
+    <trigger
+      name="FollowSlingshotLeader"
+      match="^(%a+) enters a gigantic slingshot, ready for another trip down the Avalanche Slalom!$"
+      enabled="y"
+      regexp="y"
+      send_to="12"
+      sequence="100"
+      script="FollowLeaderIntoSlingshot"
     />
   </triggers>
 </muclient>
