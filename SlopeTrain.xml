@@ -5,56 +5,50 @@
     id="3668d613691c941bb5f2478c"
     language="Lua"
     purpose="A plugin to help you lead a slope train"
+    save_state="y"
     date_written="2025-3-24 17:59:57"
     requires="5.07"
-    version="1.20"
+    version="1.21"
   >
-    <description trim="y">
-    <![CDATA[
-    +-------------------------[SlopeTrain Plugin]-------------------------+
-    |                                                                     |
-    |        Use this plugin to manage the slope train in Icefall!        |
-    |        Direct your group and provide notifications when moving.     |
-    |                   (edit line 167 to buy other pass!)                |
-    +---------------------------------------------------------------------+
-    ]]>
-    </description>
   </plugin>
 
   <aliases>
     <!-- Alias for South direction (Chutes) -->
     <alias
-      match="^ices"
+      match="^ices$"
+      name="south"
       enabled="y"
       regexp="y"
       send_to="12"
       sequence="100"
-      script="GoSouth"
+      script="enter_slope"
     />
     
     <!-- Alias for East direction (Hatchery) -->
     <alias
       match="^icee$"
+      name="east"
       enabled="y"
       regexp="y"
       send_to="12"
       sequence="100"
-      script="GoEast"
+      script="enter_slope"
     />
     
     <!-- Alias for West direction (Chutes) -->
     <alias
       match="^icew$"
+      name="west"
       enabled="y"
       regexp="y"
       send_to="12"
       sequence="100"
-      script="GoWest"
+      script="enter_slope"
     />
 	
     <!-- Alias for checking update -->
     <alias
-      match="^slopetrain\supdate\scheck$"
+      match="^slopetrain update check$"
       enabled="y"
       regexp="y"
       sequence="99"
@@ -63,91 +57,539 @@
     
     <!-- Alias for installing update -->
     <alias
-      match="^slopetrain\supdate\sinstall$"
+      match="^slopetrain update install$"
       enabled="y"
       regexp="y"
       sequence="99"
       script="update_install_alias"
     />
+
+    <!-- Alias to set slope notification messages -->
+    <alias
+      match="slopetrain set msg"
+      enabled="y"
+      sequence="99"
+      script="set_slope_message"
+    />
+
+    <!-- Alias to set the notification channel -->
+    <alias
+      match="slopetrain channel *"
+      enabled="y"
+      sequence="99"
+      script="set_channel"
+    />
+
+    <!-- Alias to set to repeat the direction -->
+    <alias
+      match="repdir"
+      enabled="y"
+      sequence="99"
+      script="repeat_train_direction"
+    />
+
+    <!-- Alias to set to type of pass -->	
+    <alias
+      match="slopetrain set pass"
+      enabled="y"
+      sequence="99"
+      script="toggle_pass_type"
+    />
+
+    <!-- Alias to show type of pass -->
+    <alias
+      match="slopetrain show pass"
+      enabled="y"
+      sequence="99"
+      script="show_current_pass"
+    />
+	
+    <!-- Alias to show helpfile -->
+    <alias
+      match="slopetrain help"
+      enabled="y"
+      sequence="99"
+      script="show_helpfile"
+    />
+
+    <!-- Alias to turn off repop message -->
+    <alias
+      match="slopetrain repop"
+      enabled="y"
+      sequence="99"
+      script="toggle_slope_repop"
+    />
   </aliases>
+
+  <script>
+    <![CDATA[
+
+require("wait")
+require("async")
+json = require("json")
+
+plugin_url = "https://raw.githubusercontent.com/st3rv1s/SlopeTrain/refs/heads/main/SlopeTrain.xml"
+SetVariable("DownloadURL", plugin_url)
+plugin_protocol = "HTTPS"
+plugin_prefix = "[SlopeTrain]"
+
+function update_check_alias()
+	update_plugin("check")
+	ColourNote("white", "", plugin_prefix .. " Checking for updated version...")
+end
+
+function update_install_alias()
+	update_plugin("install")
+	ColourNote("white", "", plugin_prefix .. " Checking for and installing updated version...")
+end
+
+function reload_plugin()
+	local scriptPrefix = GetAlphaOption("script_prefix")
+	local retval
+
+	-- If the user has not already specified the script prefix for this version of mush, pick a
+	-- reasonable default value
+	if scriptPrefix == "" then
+		scriptPrefix = "\\\\\\"
+		SetAlphaOption("script_prefix", scriptPrefix)
+	end
+
+	-- Tell mush to reload the plugin in one second.  We can't do it directly here because a
+	-- plugin can't unload itself.  Even if it could, how could it tell mush to load it again
+	-- if it weren't installed?
+	retval = Execute(scriptPrefix .. "DoAfterSpecial(0.1, \"ReloadPlugin('" .. GetPluginID() .. "')\", sendto.script)")
+end
+
+function update_plugin(mode)
+	update_mode = mode
+
+	wait.make(get_plugin_file)
+end
+
+function get_plugin_file()
+	local urlThread = async.request(plugin_url, plugin_protocol)
+
+	if not urlThread then
+		note_error("Couldn't create async url request.")
+		return
+	end
+
+	local timeout = 10
+	local totTime = 0
+	while urlThread:alive() and totTime < timeout do
+		wait.time(0.1)
+		totTime = totTime + 0.1
+	end
+
+	local remoteRet, pluginData, status, headers, fullStatus = urlThread:join()
+
+	if not status then
+		ColourNote("red", "", plugin_prefix .. " Couldn't download plugin file. No status code.")
+
+		return
+	end
+
+	if status ~= 200 then
+		ColourNote("red", "", plugin_prefix .. " Plugin file request status code: " .. status .. ": " .. fullStatus)
+		return
+	end
+
+	local currentVersion = GetPluginInfo(GetPluginID(), 19) or 0
+	local currentVerStr = string.format("%1.3f", currentVersion)
+	local remoteVerStr = string.match(pluginData, '%s%s+version="([0-9%.]+)"')
+	local remoteVersion = tonumber(remoteVerStr or "") or 0
+
+	if remoteVersion == currentVersion then
+		ColourNote("white", "", plugin_prefix .. " You are running the most recent version (v" .. currentVerStr .. ")")
+	elseif remoteVersion < currentVersion then
+		ColourNote(
+			"white",
+			"",
+			plugin_prefix .. " You have a newer version than is publicly available. (v" .. currentVerStr .. ")"
+		)
+	elseif update_mode == "check" then
+		ColourNote(
+			"white",
+			"",
+			plugin_prefix .. " You are running v" .. currentVerStr .. ", but there's a newer version v" .. remoteVerStr
+		)
+	elseif update_mode == "install" then
+		ColourNote(
+			"white",
+			"",
+			plugin_prefix .. " Updating plugin from version " .. currentVerStr .. " to version " .. remoteVerStr
+		)
+
+		local pluginFile = GetPluginInfo(GetPluginID(), 6)
+		local file = io.open(pluginFile, "wb")
+		file:write(pluginData)
+		file:close()
+		reload_plugin()
+	else
+		ColourNote("red", "", plugin_prefix .. " Invalid update mode: " .. update_mode)
+	end
+end
+----------------------- End Plugin Update Code -----------------------
+
+-- Ensure the gmcphelper module is loaded
+require("gmcphelper")
+
+-- Load the Aardwolf color functions	
+dofile(GetInfo(60) .. "aardwolf_colors.lua")
+
+-- Basic print function that supports Aardwolf, xterm, and ANSI color codes
+function cnote(string)
+    AnsiNote(stylesToANSI(ColoursToStyles(string)))
+end
+
+-- Show the helpfile after installing or loading the plugin
+function OnPluginInstall()
+	show_helpfile()
+end
+
+is_group_leader = false
+player_name = ""
+room_num = 0
+current_zone = ""
+in_combat = false
+on_slope = false
+slope_repop_enabled = true
+chan = GetVariable("chan") or "gtell"
+
+
+slope_directions = {
+	slingshot = "enter slingshot",
+	kill = "west",
+	hatchery = "east",
+	chutes = "south",
+}
+
+slope_exits = {
+	west = 38836,
+	east = 38814,
+	south = 38825,
+}
+
+slope_rooms = {}
+
+for i = 38814, 38845 do
+	if i ~= 38824 and i ~= 38835 then
+		slope_rooms[i] = true
+	end
+end
+
+local status, result = pcall(json.decode, GetVariable("train_msg") or "")
+if status and type(result) == "table" and #result > 0 then
+    train_msg = result
+else
+    Note("[SlopeTrain] No valid saved train messages. Restoring defaults.")
+    train_msg = {
+        "@C(@DSlopeTrain@C) @x256CHOO @x256CHOO@W, the train is moving @C%s@W!$C",
+        "@C(@DSlopeTrain@C) @WALL ABOARD! The train moving @C%s@W... @x256CHOO @x256CHOO@W!$C",
+    }
+    SetVariable("train_msg", json.encode(train_msg))
+end
+
+function OnPluginBroadcast(msg, id, name, text)
+  if id == "3e7dedbe37e44942dd46d264" then
+    if text == "char.base" then
+      player_name = gmcp("char.base.name")
+    elseif text == "group" then
+      is_group_leader = (gmcp("group.leader") == gmcp("char.base.name"))
+    elseif text == "room.info" then
+      room_num = tonumber(gmcp("room.info.num"))
+      is_in_icefall = (gmcp("room.info.zone") == "icefall")
+      on_enter_room()
+    elseif text == "char.status" then
+      local status = gmcp("char.status")
+      local state = tonumber(status.state)
+	  in_combat = (state == 8)
+    end
+  end
+end
+
+function on_enter_room()
+	on_slope = slope_rooms[room_num] or false
+end
+
+function enter_slope(name, line, wildcards)
+  if in_combat then
+    Note("[SlopeTrain] You're in combat. Movement blocked.")
+    return
+  end
+
+  local direction = name
+
+  if is_in_icefall and room_num ~= 38813 then
+    Execute("mapper goto 38813")
+
+    wait.make(function()
+      while tonumber(gmcp("room.info.num")) ~= 38813 do
+        wait.time(2)
+      end
+
+      continue_slope_entry(direction)
+    end)
+
+    return
+  end
+
+  continue_slope_entry(direction)
+end
+
+function continue_slope_entry(direction)
+  if is_group_leader then
+    SendNoEcho(direction)
+
+    wait.make(function()
+      local timeout = 2
+      local elapsed = 0
+      local dir
+
+      while elapsed < timeout do
+        dir = get_slope_direction(room_num)
+        if dir then break end
+
+        wait.time(0.2)
+        elapsed = elapsed + 0.2
+      end
+
+      if dir then
+        slope_success(dir)
+      else
+        Note("[SlopeTrain] Timed out waiting for valid slope entry.")
+      end
+    end)
+  else
+    SendNoEcho(direction:lower())
+  end
+end
+
+function get_slope_direction(room)
+  for dir, num in pairs(slope_exits) do
+    if num == room then
+      return dir
+    end
+  end
+  return nil
+end
+
+function slope_success(direction)
+  local slope_msg = string.format(train_msg[math.random(1, #train_msg)], direction:upper())
+  last_train_msg = slope_msg
+  SendNoEcho(chan .. " " .. slope_msg)
+end
+
+function follow_the_leader(name, line, wildcards)
+	if wildcards[1] == gmcp("group.leader") then
+		SendNoEcho(slope_directions[name])
+	end
+end
+
+function expired_pass_action()
+    local current_pass = GetVariable("current_pass") or "onedaypass"
+
+    if current_pass == "250usespass" then
+        SendNoEcho("buy 250usespass")
+    elseif current_pass == "oneweekpass" then
+        SendNoEcho("buy oneweekpass")
+    elseif current_pass == "onedaypass" then
+        SendNoEcho("buy onedaypass")
+    end
+
+    SendNoEcho("keyring put pass")
+end
+
+function set_slope_message()
+    local messages = utils.editbox(
+        "Custom slope messages.\nUse %s as a substitute for direction.\nOne custom message per line.",
+        "Slope Notifications",
+        table.concat(train_msg, "\r\n")
+    )
+
+    if not messages then
+        Note("[SlopeTrain] No custom messages or user cancelled.")
+        return
+    end
+
+    local new_msgs = {}
+    for line in messages:gmatch("[^\r\n]+") do
+        local trimmed = line:match("^%s*(.-)%s*$")
+        if trimmed ~= "" then
+            table.insert(new_msgs, trimmed)
+        end
+    end
+
+    if #new_msgs == 0 then
+        Note("[SlopeTrain] No valid messages entered. Keeping existing messages.")
+        return
+    end
+
+    train_msg = new_msgs
+    SetVariable("train_msg", json.encode(train_msg))
+    Note("[SlopeTrain] Saved custom messages.")
+end
+
+last_train_msg = train_msg
+
+function repeat_train_direction()
+  if last_train_msg then
+     SendNoEcho("gtell " .. last_train_msg)
+    Note("[SlopeTrain] Repeating last direction")
+  else
+    Note("[SlopeTrain] No previous direction to repeat.")
+  end
+end
+
+function toggle_pass_type()
+    local current_pass = GetVariable("current_pass") or "onedaypass"
+    local pass_ids = {"250usespass", "oneweekpass", "onedaypass"}
+    local current_index = 0
+
+    for i, pass in ipairs(pass_ids) do
+        if pass == current_pass then
+            current_index = i
+            break
+        end
+    end
+
+    local next_index = (current_index % #pass_ids) + 1
+    local next_pass = pass_ids[next_index]
+    SetVariable("current_pass", next_pass)
+
+    local display_formats = {
+        ["250usespass"] = "@W[@G250 Uses @RPass@W]",
+        oneweekpass    = "@W[@COne Week @RPass@W]",
+        onedaypass     = "@W[@yOne Day @RPass@W]"
+    }
+
+    cnote(string.format("@b[SlopeTrain] Pass type toggled. Current pass type: %s", display_formats[next_pass]))
+end
+
+function show_current_pass()
+    local current_pass = GetVariable("current_pass") or "onedaypass"
+
+    local display_formats = {
+        ["250usespass"] = "@W[@G250 Uses @RPass@W]",
+        oneweekpass    = "@W[@COne Week @RPass@W]",
+        onedaypass     = "@W[@yOne Day @RPass@W]"
+    }
+
+    cnote(string.format("@b[SlopeTrain] Current pass type: %s", display_formats[current_pass] or current_pass))
+end
+
+function toggle_slope_repop()
+    if slope_repop_enabled then
+        slope_repop_enabled = false
+		EnableGroup("slopeRepop", false)
+        cnote("@b[SlopeTrain]Repop message is now @ROFF")
+    else
+        slope_repop_enabled = true
+		EnableGroup("slopeRepop", true)
+        cnote("@b[SlopeTrain]Repop message is now @GON")
+    end
+end
+
+function set_channel(name, line, wildcards)
+    SetVariable("chan", wildcards[1])
+    cnote("@b[SlopeTrain] Changed report channel to:@C " .. wildcards[1])
+end
+
+function slope_repop()
+  if not chan or chan == "" then
+    ColourNote("red", "", "SlopeTrain: Channel is not set. Use 'slopetrain channel' to set one.")
+    return
+  end
+  
+  if is_group_leader then
+  SendNoEcho(chan .. " @C(@x244SlopeTrain@C) @WThe engine just got @GFUELED@W. @x256C@x256H@x256U@x256G@x256G@x256A @x256C@x256H@x256U@x256G@x256G@x256A @x256C@x256H@x256O@x256O @x256C@x256H@x256O@x256O$C")
+  end
+end
+
+function show_helpfile()
+  cnote("")
+  cnote("@C+@W-------------------[@CSlopeTrain  Helpfile@W]--------------------@C+@w")
+  ColourNote("white", "", "", "white", "", "")
+  ColourNote("lightcyan", "", "slopetrain update check   - ", "white", "", "Check your current version")
+  ColourNote("lightcyan", "", "slopetrain update install - ", "white", "", "Install latest version")
+  ColourNote("lightcyan", "", "slopetrain help           - ", "white", "", "Outputs this helpfile")
+  ColourNote("white", "", "", "white", "", "")
+  cnote("@C+@W-------------------[@CSlopeTrain Setup@W]------------------------@C+@w")
+  ColourNote("white", "", "", "white", "", "")
+  ColourNote("lightcyan", "", "slopetrain set msg        - ", "white", "", "Setup your own slope mesesages")
+  ColourNote("lightcyan", "", "slopetrain set pass       - ", "white", "", "Toggle between type of pass")
+  ColourNote("lightcyan", "", "slopetrain show pass      - ", "white", "", "Shows your current set pass")
+  ColourNote("lightcyan", "", "slopetrain repop          - ", "white", "", "Turn on/off the repop message") 
+  ColourNote("lightcyan", "", "slopetrain channel        - ", "white", "", "Set repop channel: ", "cyan", "", chan)
+  ColourNote("white", "", "", "white", "", "")
+  cnote("@C+@W-------------------[@CSlopeTrain Commands@W]---------------------@C+@w")
+  ColourNote("white", "", "", "white", "", "")
+  ColourNote("lightcyan", "", "icee                      - ", "white", "", "Move the train to the East slope")
+  ColourNote("lightcyan", "", "ices                      - ", "white", "", "Move the train to the South slope")
+  ColourNote("lightcyan", "", "icew                      - ", "white", "", "Move the train to the West slope")
+  ColourNote("lightcyan", "", "repdir                    - ", "white", "", "Manually report the last direction")
+  ColourNote("white", "", "", "white", "", "")
+  cnote("@C+@W-------------------[@CSlopeTrain Helpfile@W]---------------------@C+@w")
+  cnote("")
+end
+
+    ]]>
+  </script>
 
   <triggers>
     <!-- Trigger for leader entering slingshot -->
     <trigger
-      name="LeaderEntersSlingshot"
       match="^([^ ]+) enters a gigantic slingshot, ready for another trip down the Avalanche Slalom!$"
+      name="slingshot"
       enabled="y"
       group="slopeTrain"
       regexp="y"
       send_to="12"
       ignore_case="y"
       sequence="100"
-      script="LeaderEnterSlingshot"
+      script="follow_the_leader"
     />
 
-    <!-- Trigger to set leader when entering the slingshot area -->
-    <trigger
-      name="SlingshotLeader"
-      match="^A gigantic slingshot aims for the top of the Avalanche Slalom\.|The Icefall Bulletin Board is waiting for you to read board\.|.*Thin wooden planks extend as the only means of travel here\.|.*More crimson dyed snow is present in the powdery region heading north\.|.*Red snowflakes litter the air\, mixed with the regularly yet plain colored|.*Packed with fresh powder\, the top of the mountain is a comfortable plateau$"
-      enabled="y"
-      group="slopeTrain"
-      regexp="y"
-      send_to="12"
-      ignore_case="y"
-      sequence="100"
-      script="check_leader_on_enter_room"
-    />
-	
+
     <!-- Trigger for Iced Fish Hatchery -->
     <trigger
-      name="LeaderEntersHatchery"
       match="^([^ ]+) enters Iced Fish Hatchery.$"
+      name="hatchery"
       enabled="y"
       group="slopeTrain"
       regexp="y"
       send_to="12"
       ignore_case="y"
       sequence="100"
-      script="LeaderEnterHatchery"
+      script="follow_the_leader"
     />
 
     <!-- Trigger for Chutes and Empty Bladders -->
     <trigger
-      name="LeaderEntersChutes"
       match="^([^ ]+) enters Chutes and Empty Bladders.$"
+      name="chutes"
       enabled="y"
       group="slopeTrain"
       regexp="y"
       send_to="12"
       ignore_case="y"
       sequence="100"
-      script="LeaderEnterChutes"
+      script="follow_the_leader"
     />
 
     <!-- Trigger for King of the Kill -->
     <trigger
-      name="LeaderEntersKill"
       match="^([^ ]+) enters King of the Kill.$"
+      name="kill"
       enabled="y"
       group="slopeTrain"
       regexp="y"
       send_to="12"
       ignore_case="y"
       sequence="100"
-      script="LeaderEnterKill"
+      script="follow_the_leader"
     />
 	
-    <trigger
-      match="^A gruff ski patrol marks off one of your uses\.  \d+ left\.$"
-      enabled="y"
-      group="slopeTrain"
-      regexp="y"
-      send_to="12"
-      ignore_case="y"
-      sequence="100"
-      script="MarkSlopeSuccess"
-    />
-
     <!-- Trigger for expired pass -->
     <trigger
       name="ExpiredPass"
@@ -158,267 +600,22 @@
       send_to="12"
       ignore_case="y"
       sequence="100"
-      script="ExpiredPassAction"
+      script="expired_pass_action"
     />
+	
+    <!-- Trigger for repop -->
+    <trigger
+      name="Repop"
+      match="^The Avalanche Slalom is covered with dry powder snow\.$"
+      enabled="y"
+      group="slopeRepop"
+      regexp="y"
+      send_to="12"
+      ignore_case="y"
+      sequence="100"
+      script="slope_repop"
+    />	
   </triggers>
-  
-  <script>
-    <![CDATA[
 
-      -- Ensure the gmcphelper module is loaded
-      require "gmcphelper"
-
-      local group_leader = ""
-	  local slope_successful = false
-	  
-      -- Function to check if the player is in the Icefall area
-      function is_in_icefall()
-        local current_zone = gmcp("room.info.zone") -- Assume GMCP provides the zone name
-        return current_zone == "icefall"
-      end
-
-      -- Function to check if the current player is the leader
-      function is_leader()
-        local playerName = gmcp("char.base.name")  -- Get the player's name
-		group_leader = gmcp("group.leader")  -- Store the group leader name
-        return playerName == group_leader  -- Check if the player is the group leader
-      end
-
-    -- Function to check the current leader
-    function check_leader_on_enter_room()
-      local room_num = tonumber(gmcp("room.info.num")) -- Check the room number as a number
-      local playerName = gmcp("char.base.name")  -- Get the player's name
-      group_leader = gmcp("group.leader")  -- Store the group leader name
-      if playerName == group_leader then  -- Check if the player is the group leader
-        if room_num == 38719 then
-          Note("Type icew (Kill), icee (Hatchery) or ices (Chutes) to move to specific slope!")
-        end
-      end
-    end
-	  
-      function LeaderEnterSlingshot(name, line, wildcards)
-        -- Check if the first wildcard matches the group leader
-        if wildcards[1] == group_leader then
-          SendNoEcho("enter slingshot")  -- Send the command to enter the slingshot
-        end
-      end
-	  
-    function SouthTimer()
-      -- Immediately set slope_successful to true when the leader moves
-      if is_leader() then
-        slope_successful = true
-      end
-      if slope_successful then
-        SendNoEcho("south")
-        SendNoEcho("gt @C(@DSlopeTrain@C) @WALL ABOARD! SlopeTrain moving @CSOUTH@W... @SCHOO CHOO!@Y")
-        slope_successful = false -- Reset after use
-      else
-        SendNoEcho("south") -- Still move even if no confirmation
-      end
-    end	  
-      
-    function GoSouth()
-	if is_in_icefall() then
-	  check_leader_on_enter_room()
-        Execute("mapper goto 38813")
-        if is_leader() and is_in_icefall() then
-            DoAfterSpecial(2, "SouthTimer()", sendto.script)
-	  else
-	      SendNoEcho("south")
-        end
-	end
-    end
-	  
-    function EastTimer()
-      if is_leader() then
-        slope_successful = true
-      end
-      if slope_successful then
-        SendNoEcho("east")
-        SendNoEcho("gt @C(@DSlopeTrain@C) @WALL ABOARD! SlopeTrain moving @CEAST@W... @MCHOO CHOO!@Y")
-        slope_successful = false -- Reset after use
-      else
-        SendNoEcho("east") -- Still move even if no confirmation
-      end
-    end	  
-      
-      function GoEast()
-	    if is_in_icefall() then
-		  check_leader_on_enter_room()
-          Execute("mapper goto 38813")
-          if is_leader() and is_in_icefall() then
-              DoAfterSpecial(2, "EastTimer()", sendto.script)
-		  else
-		      SendNoEcho("east")
-          end
-		end
-      end
-
-    function WestTimer()
-      if is_leader() then
-        slope_successful = true
-      end
-      if slope_successful then
-        SendNoEcho("west")
-        SendNoEcho("gt @C(@DSlopeTrain@C) @WALL ABOARD! SlopeTrain moving @CWEST@W... @BCHOO CHOO!@Y")
-        slope_successful = false -- Reset after use
-      else
-        SendNoEcho("west") -- Still move even if no confirmation
-      end
-    end
-      
-      function GoWest()
-	    if is_in_icefall() then
-		  check_leader_on_enter_room()
-          Execute("mapper goto 38813")
-          if is_leader() and is_in_icefall() then
-              DoAfterSpecial(2, "WestTimer()", sendto.script)
-		  else
-		      SendNoEcho("west")
-          end
-		end
-      end
-	  
-      -- Function for leader entering Iced Fish Hatchery (East)
-      function LeaderEnterHatchery(name, line, wildcards)
-        if wildcards[1] == group_leader then
-          SendNoEcho("east")
-        end
-      end
-
-      -- Function for leader entering Chutes and Empty Bladders (South)
-      function LeaderEnterChutes(name, line, wildcards)
-        if wildcards[1] == group_leader then
-          SendNoEcho("south")
-        end
-      end
-
-      -- Function for leader entering King of the Kill (West)
-      function LeaderEnterKill(name, line, wildcards)
-        if wildcards[1] == group_leader then
-          SendNoEcho("west")
-        end
-      end
-
-      -- Function for expired pass action
-      function ExpiredPassAction()
-        -- Move to the specified location
-        Execute("mapper goto 38714")
-        -- Send the command to buy a new pass
-        SendNoEcho("buy 250usespass")
-		-- Put the pass on the keyring
-		SendNoEcho("keyring put pass")
-      end
-	  
-    function MarkSlopeSuccess()
-      slope_successful = true
-    end
-	
-	
-	
-	
-	
-	
-	
-	
-	
-     ----------------------- Plugin Update Code -----------------------
-     -- Code taken from Durel's dinv plugin, originally via Crowley
-    require("wait")
-    require("async")
-    json = require("json")
-    
-     plugin_url = "https://raw.githubusercontent.com/st3rv1s/SlopeTrain/refs/heads/main/SlopeTrain.xml"
-     SetVariable("DownloadURL", plugin_url)
-     plugin_protocol = "HTTPS"
-     plugin_prefix = "[SlopeTrain]"
-     
-     function update_check_alias()
-         update_plugin("check")
-         ColourNote("white", "", plugin_prefix .. " Checking for updated version...")
-     end
-     
-     function update_install_alias()
-         update_plugin("install")
-         ColourNote("white", "", plugin_prefix .. " Checking for and installing updated version...")
-     end
-     
-     function reload_plugin()
-         local scriptPrefix = GetAlphaOption("script_prefix")
-         local retval
-     
-         -- If the user has not already specified the script prefix for this version of mush, pick a
-         -- reasonable default value
-         if (scriptPrefix == "") then
-             scriptPrefix = "\\\\\\"
-             SetAlphaOption("script_prefix", scriptPrefix)
-         end
-     
-         -- Tell mush to reload the plugin in one second.  We can't do it directly here because a
-         -- plugin can't unload itself.  Even if it could, how could it tell mush to load it again
-         -- if it weren't installed? 
-         retval = Execute(scriptPrefix.."DoAfterSpecial(0.1, \"ReloadPlugin('"..GetPluginID().."')\", sendto.script)")
-     end
-     
-     function update_plugin(mode)
-         update_mode = mode
-     
-         wait.make(get_plugin_file)
-     end
-     
-     function get_plugin_file()
-         local urlThread = async.request(plugin_url, plugin_protocol)
-     
-         if not urlThread then
-             note_error("Couldn't create async url request.")
-             return
-         end
-     
-         local timeout = 10
-         local totTime = 0
-         while (urlThread:alive() and totTime < timeout) do
-             wait.time(0.1)
-             totTime = totTime + 0.1
-         end
-     
-         local remoteRet, pluginData, status, headers, fullStatus = urlThread:join()
-     
-         if not status then
-             ColourNote("red", "", plugin_prefix .. " Couldn't download plugin file. No status code.")
-             
-             return
-         end
-     
-         if (status ~= 200) then
-             ColourNote("red", "", plugin_prefix .. " Plugin file request status code: " .. status .. ": " .. fullStatus)
-             return
-         end
-         
-         local currentVersion = GetPluginInfo(GetPluginID(), 19) or 0
-         local currentVerStr  = string.format("%1.3f", currentVersion)
-         local remoteVerStr   = string.match(pluginData, '%s%s+version="([0-9%.]+)"')
-         local remoteVersion  = tonumber(remoteVerStr or "") or 0
-     
-         if remoteVersion == currentVersion then
-             ColourNote("white", "", plugin_prefix .. " You are running the most recent version (v" .. currentVerStr .. ")")
-         elseif (remoteVersion < currentVersion) then
-             ColourNote("white", "", plugin_prefix .. " You have a newer version than is publicly available. (v" .. currentVerStr .. ")")
-         elseif (update_mode == "check") then
-             ColourNote("white", "", plugin_prefix .. " You are running v" .. currentVerStr .. ", but there's a newer version v" .. remoteVerStr)
-         elseif (update_mode == "install") then
-             ColourNote("white", "", plugin_prefix .. " Updating plugin from version " .. currentVerStr .. " to version " .. remoteVerStr) 
-     
-             local pluginFile = GetPluginInfo(GetPluginID(), 6)
-             local file = io.open(pluginFile, "wb")
-             file:write(pluginData)
-             file:close()
-             reload_plugin()
-         else
-             ColourNote("red", "", plugin_prefix .. " Invalid update mode: " .. update_mode)
-         end
-     end
-     ----------------------- End Plugin Update Code -----------------------
-	
-    ]]>
-  </script>
 </muclient>
+ 
