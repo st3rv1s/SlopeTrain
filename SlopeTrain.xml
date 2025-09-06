@@ -8,7 +8,7 @@
     save_state="y"
     date_written="2025-3-24 17:59:57"
     requires="5.07"
-    version="1.22"
+    version="1.23"
   >
   </plugin>
 
@@ -44,7 +44,7 @@
       send_to="12"
       sequence="100"
       script="enter_slope"
-    />
+    />reod
 	
     <!-- Alias for checking update -->
     <alias
@@ -319,6 +319,7 @@ function enter_slope(name, line, wildcards)
   end
 
   local direction = name
+  last_slope_direction = direction
 
   if is_in_icefall and room_num ~= 38813 then
     Execute("mapper goto 38813")
@@ -404,6 +405,17 @@ function expired_pass_action()
 
     SendNoEcho("keyring put pass")
 	Execute("mapper goto 38813")
+	
+    wait.make(function()
+        while tonumber(gmcp("room.info.num")) ~= 38813 do
+            wait.time(1)
+        end
+    
+        if last_slope_direction then
+            continue_slope_entry(last_slope_direction)
+            last_slope_direction = nil
+        end
+    end)
 end
 
 function set_slope_message()
@@ -436,6 +448,11 @@ end
 last_train_msg = nil
 
 function repeat_train_direction()
+  if not is_in_icefall then
+    Note("[SlopeTrain] You can only repeat directions in Icefall.")
+    return
+  end
+  
   if last_train_msg then
      SendNoEcho("gtell " .. last_train_msg)
     Note("[SlopeTrain] Repeating last direction")
