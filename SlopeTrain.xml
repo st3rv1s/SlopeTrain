@@ -8,7 +8,7 @@
     save_state="y"
     date_written="2025-3-24 17:59:57"
     requires="5.07"
-    version="1.27"
+    version="1.26"
   >
   </plugin>
 
@@ -245,7 +245,25 @@ end
 -- Show the helpfile after installing or loading the plugin
 function OnPluginInstall()
 	show_helpfile()
+	
+local saved_msgs = GetVariable("train_msg")
+	if saved_msgs then
+		local ok, decoded = pcall(json.decode, saved_msgs)
+		if ok and type(decoded) == "table" and #decoded > 0 then
+			train_msg = decoded
+		else
+			train_msg = {
+				"@C(@DSlopeTrain@C) Default message moving @C%s@W!$C"
+			}
+		end
+	else
+		train_msg = {
+			"@C(@DSlopeTrain@C) Default message moving @C%s@W!$C"
+		}
+	end
 end
+
+
 
 is_group_leader = false
 player_name = ""
@@ -290,16 +308,9 @@ else
 	SetVariable("train_msg", json.encode(train_msg))
 end
 
-function repeat_sprintf(template, direction)
-    -- Replace the dynamic repeat placeholder (%r)
-    template = template:gsub("%%r", direction:upper())
-
-    -- Replace the fixed direction placeholders
-    template = template:gsub("%%w", "WEST")
-    template = template:gsub("%%e", "EAST")
-    template = template:gsub("%%s", "SOUTH")
-
-    return template
+-- Helper to fill all %s placeholders with the same value
+function repeat_sprintf(template, value)
+    return template:gsub("%%s", value)
 end
 
 function OnPluginBroadcast(msg, id, name, text)
@@ -433,7 +444,7 @@ end
 
 function set_slope_message()
     local messages = utils.editbox(
-        "Custom slope messages.\nUse %r as a substitute for copied direction.\nUse %w, %s and %e for specific directions.\nOne custom message per line.",
+        "Custom slope messages.\nUse %s as a substitute for direction.\nOne custom message per line.",
         "Slope Notifications",
         table.concat(train_msg, "\r\n")
     )
@@ -457,7 +468,7 @@ function set_slope_message()
     end
 
     train_msg = new_messages
-    SetVariable("train_msg", json.encode(train_msg))
+    SetVariable("train_msg", json.encode(train_msg))  -- ✅ JSON-safe, keeps symbols intact
     Note("[SlopeTrain] Saved custom messages.")
 end
 
