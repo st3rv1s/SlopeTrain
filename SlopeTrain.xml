@@ -8,7 +8,7 @@
     save_state="y"
     date_written="2025-3-24 17:59:57"
     requires="5.07"
-    version="1.23"
+    version="1.24"
   >
   </plugin>
 
@@ -285,9 +285,14 @@ else
 	Note("[SlopeTrain] No saved train messages located. Using defaults. Customize them with 'slopetrain set msg'.")
 	train_msg = {
 		"@C(@DSlopeTrain@C) @x256CHOO @x256CHOO@W, the train is moving @C%s@W!$C",
-		"@C(@DSlopeTrain@C) @WALL ABOARD! The train moving @C%s@W... @x256CHOO @x256CHOO@W!$C",
+		"@C(@DSlopeTrain@C) @WALL ABOARD! The train is moving @C%s@W... @x256CHOO @x256CHOO@W!$C",
 	}
 	SetVariable("train_msg", json.encode(train_msg))
+end
+
+-- Helper to fill all %s placeholders with the same value
+function repeat_sprintf(template, value)
+    return template:gsub("%%s", value)
 end
 
 function OnPluginBroadcast(msg, id, name, text)
@@ -379,9 +384,10 @@ function get_slope_direction(room)
 end
 
 function slope_success(direction)
-  local slope_msg = string.format(train_msg[math.random(1, #train_msg)], direction:upper())
-  last_train_msg = slope_msg
-  SendNoEcho(chan .. " " .. slope_msg)
+    -- Use repeat_sprintf so all %s get the same direction
+    local slope_msg = repeat_sprintf(train_msg[math.random(1, #train_msg)], direction:upper())
+    last_train_msg = slope_msg
+    SendNoEcho(chan .. " " .. slope_msg)
 end
 
 function follow_the_leader(name, line, wildcards)
