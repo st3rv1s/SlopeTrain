@@ -8,7 +8,7 @@
     save_state="y"
     date_written="2025-3-24 17:59:57"
     requires="5.07"
-    version="1.21"
+    version="1.22"
   >
   </plugin>
 
@@ -278,16 +278,16 @@ for i = 38814, 38845 do
 	end
 end
 
-local status, result = pcall(json.decode, GetVariable("train_msg") or "")
-if status and type(result) == "table" and #result > 0 then
-    train_msg = result
+local status, result = pcall(json.decode, GetVariable("train_msg"))
+if status and type(result) == "table" then
+	train_msg = result
 else
-    Note("[SlopeTrain] No valid saved train messages. Restoring defaults.")
-    train_msg = {
-        "@C(@DSlopeTrain@C) @x256CHOO @x256CHOO@W, the train is moving @C%s@W!$C",
-        "@C(@DSlopeTrain@C) @WALL ABOARD! The train moving @C%s@W... @x256CHOO @x256CHOO@W!$C",
-    }
-    SetVariable("train_msg", json.encode(train_msg))
+	Note("[SlopeTrain] No saved train messages located. Using defaults. Customize them with 'slopetrain set msg'.")
+	train_msg = {
+		"@C(@DSlopeTrain@C) @x256CHOO @x256CHOO@W, the train is moving @C%s@W!$C",
+		"@C(@DSlopeTrain@C) @WALL ABOARD! The train moving @C%s@W... @x256CHOO @x256CHOO@W!$C",
+	}
+	SetVariable("train_msg", json.encode(train_msg))
 end
 
 function OnPluginBroadcast(msg, id, name, text)
@@ -325,8 +325,11 @@ function enter_slope(name, line, wildcards)
 
     wait.make(function()
       while tonumber(gmcp("room.info.num")) ~= 38813 do
-        wait.time(2)
+        wait.time(1)
       end
+	  
+	  -- pause at pinnacle
+	  wait.time(1)
 
       continue_slope_entry(direction)
     end)
@@ -342,7 +345,7 @@ function continue_slope_entry(direction)
     SendNoEcho(direction)
 
     wait.make(function()
-      local timeout = 2
+      local timeout = 1
       local elapsed = 0
       local dir
 
@@ -388,7 +391,9 @@ end
 
 function expired_pass_action()
     local current_pass = GetVariable("current_pass") or "onedaypass"
-
+	
+	Execute("mapper goto 38714")
+	
     if current_pass == "250usespass" then
         SendNoEcho("buy 250usespass")
     elseif current_pass == "oneweekpass" then
@@ -398,39 +403,37 @@ function expired_pass_action()
     end
 
     SendNoEcho("keyring put pass")
+	Execute("mapper goto 38813")
 end
 
 function set_slope_message()
-    local messages = utils.editbox(
-        "Custom slope messages.\nUse %s as a substitute for direction.\nOne custom message per line.",
-        "Slope Notifications",
-        table.concat(train_msg, "\r\n")
-    )
+	local messages = utils.editbox(
+		"Custom slope messages.\nUse %s as a substitute for direction.\nOne custom message per line.",
+		"Slope Notifications",
+		table.concat(train_msg, "\r\n")
+	)
 
-    if not messages then
-        Note("[SlopeTrain] No custom messages or user cancelled.")
-        return
-    end
+	if not messages then
+		Note("[SlopeTrain] No custom messages or user cancelled.")
+		return
+	end
 
-    local new_msgs = {}
-    for line in messages:gmatch("[^\r\n]+") do
-        local trimmed = line:match("^%s*(.-)%s*$")
-        if trimmed ~= "" then
-            table.insert(new_msgs, trimmed)
-        end
-    end
+	train_msg = {}
 
-    if #new_msgs == 0 then
-        Note("[SlopeTrain] No valid messages entered. Keeping existing messages.")
-        return
-    end
+	for line in messages:gmatch("[^\r\n]+") do
+		table.insert(train_msg, line)
+	end
 
-    train_msg = new_msgs
-    SetVariable("train_msg", json.encode(train_msg))
-    Note("[SlopeTrain] Saved custom messages.")
+	SetVariable("train_msg", json.encode(train_msg))
+	Note("[SlopeTrain] Saved custom messages.")
 end
 
-last_train_msg = train_msg
+function set_channel(name, line, wildcards)
+    SetVariable("chan", wildcards[1])
+    cnote("@b[SlopeTrain] Changed report channel to:@C " .. wildcards[1])
+end
+
+last_train_msg = nil
 
 function repeat_train_direction()
   if last_train_msg then
@@ -488,11 +491,6 @@ function toggle_slope_repop()
 		EnableGroup("slopeRepop", true)
         cnote("@b[SlopeTrain]Repop message is now @GON")
     end
-end
-
-function set_channel(name, line, wildcards)
-    SetVariable("chan", wildcards[1])
-    cnote("@b[SlopeTrain] Changed report channel to:@C " .. wildcards[1])
 end
 
 function slope_repop()
@@ -618,4 +616,3 @@ end
   </triggers>
 
 </muclient>
- 
