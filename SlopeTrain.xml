@@ -8,7 +8,7 @@
     save_state="y"
     date_written="2025-3-24 17:59:57"
     requires="5.07"
-    version="1.25"
+    version="1.26"
   >
   </plugin>
 
@@ -245,23 +245,25 @@ end
 -- Show the helpfile after installing or loading the plugin
 function OnPluginInstall()
 	show_helpfile()
+	
+local saved_msgs = GetVariable("train_msg")
+	if saved_msgs then
+		local ok, decoded = pcall(json.decode, saved_msgs)
+		if ok and type(decoded) == "table" and #decoded > 0 then
+			train_msg = decoded
+		else
+			train_msg = {
+				"@C(@DSlopeTrain@C) Default message moving @C%s@W!$C"
+			}
+		end
+	else
+		train_msg = {
+			"@C(@DSlopeTrain@C) Default message moving @C%s@W!$C"
+		}
+	end
 end
 
-local saved_msgs = GetVariable("train_msg")
-if saved_msgs then
-    local ok, decoded = pcall(json.decode, saved_msgs)
-    if ok and type(decoded) == "table" and #decoded > 0 then
-        train_msg = decoded
-    else
-        train_msg = {
-            "@C(@DSlopeTrain@C) Default message moving @C%s@W!$C"
-        }
-    end
-else
-    train_msg = {
-        "@C(@DSlopeTrain@C) Default message moving @C%s@W!$C"
-    }
-end
+
 
 is_group_leader = false
 player_name = ""
