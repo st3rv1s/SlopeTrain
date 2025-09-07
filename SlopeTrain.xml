@@ -8,7 +8,7 @@
     save_state="y"
     date_written="2025-3-24 17:59:57"
     requires="5.07"
-    version="1.26"
+    version="1.27"
   >
   </plugin>
 
@@ -62,6 +62,14 @@
       regexp="y"
       sequence="99"
       script="update_install_alias"
+    />
+	
+    <alias
+      match="^icenxt$"
+      enabled="y"
+      regexp="y"
+      sequence="100"
+      script="move_next_slope_room"
     />
 
     <!-- Alias to set slope notification messages -->
@@ -401,6 +409,36 @@ function get_slope_direction(room)
   return nil
 end
 
+function move_next_slope_room()
+    if not on_slope then
+        Note("[SlopeTrain] You are not on the slope.")
+        return
+    end
+
+    local exits = gmcp("room.info.exits")
+    if not exits or type(exits) ~= "table" then
+        Note("[SlopeTrain] No exits found in GMCP.")
+        return
+    end
+
+    local count, dir = 0, nil
+    for k, v in pairs(exits) do
+        count = count + 1
+        dir = k
+    end
+
+    if count == 1 and dir then
+        if dir == "down" then
+            Note("[SlopeTrain] You’ve reached the END of the slope. Use commands to move to new slope.")
+            return  -- stop here, don’t auto-move
+        else
+            SendNoEcho(dir)
+        end
+    else
+        Note("[SlopeTrain] Unexpected number of exits (" .. count .. ").")
+    end
+end
+
 function slope_success(direction)
     -- Use repeat_sprintf so all %s get the same direction
     local slope_msg = repeat_sprintf(train_msg[math.random(1, #train_msg)], direction:upper())
@@ -444,7 +482,7 @@ end
 
 function set_slope_message()
     local messages = utils.editbox(
-        "Custom slope messages.\nUse %s as a substitute for direction.\nOne custom message per line.",
+        "Custom slope messages.\nUse %s as a substitute for direction.\nOne custom message per line.\nTo prevent color bleeding end with $C.",
         "Slope Notifications",
         table.concat(train_msg, "\r\n")
     )
@@ -574,6 +612,7 @@ function show_helpfile()
   ColourNote("lightcyan", "", "icee                      - ", "white", "", "Move the train to the East slope")
   ColourNote("lightcyan", "", "ices                      - ", "white", "", "Move the train to the South slope")
   ColourNote("lightcyan", "", "icew                      - ", "white", "", "Move the train to the West slope")
+  ColourNote("lightcyan", "", "icenxt                 - ", "white", "", "To move to the next room on slope")  
   ColourNote("lightcyan", "", "repdir                    - ", "white", "", "Manually report the last direction")
   ColourNote("white", "", "", "white", "", "")
   cnote("@C+@W-------------------[@CSlopeTrain Helpfile@W]---------------------@C+@w")
