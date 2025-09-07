@@ -422,20 +422,15 @@ function move_next_slope_room()
     end
 
     local count, dir = 0, nil
-    for k, v in pairs(exits) do
+    for k, _ in pairs(exits) do
         count = count + 1
-        dir = k
+        dir = k  -- store last exit found
     end
 
-    if count == 1 and dir then
-        if dir == "down" then
-            Note("[SlopeTrain] You’ve reached the END of the slope. Use commands to move to new slope.")
-            return  -- stop here, don’t auto-move
-        else
-            SendNoEcho(dir)
-        end
+    if dir then
+        SendNoEcho(dir)  -- just move along the available exit
     else
-        Note("[SlopeTrain] Unexpected number of exits (" .. count .. ").")
+        Note("[SlopeTrain] No valid exits to move.")
     end
 end
 
@@ -705,3 +700,4 @@ end
   </triggers>
 
 </muclient>
+
