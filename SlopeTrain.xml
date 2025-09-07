@@ -593,6 +593,7 @@ end
 
 function show_helpfile()
   cnote("")
+  cnote("@W                 @RIMPORTANT: SETUP YOUR CEXITS!                 @w")  
   cnote("@C+@W-------------------[@CSlopeTrain  Helpfile@W]--------------------@C+@w")
   ColourNote("white", "", "", "white", "", "")
   ColourNote("lightcyan", "", "slopetrain update check   - ", "white", "", "Check your current version")
