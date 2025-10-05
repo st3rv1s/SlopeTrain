@@ -203,7 +203,7 @@ function get_plugin_file()
 	end
 
 	local currentVersion = GetPluginInfo(GetPluginID(), 19) or 0
-	local currentVerStr = string.format("%1.3f", currentVersion)
+	local currentVerStr = tostring(currentVersion)
 	local remoteVerStr = string.match(pluginData, '%s%s+version="([0-9%.]+)"')
 	local remoteVersion = tonumber(remoteVerStr or "") or 0
 
@@ -700,4 +700,5 @@ end
   </triggers>
 
 </muclient>
+
 
