@@ -111,8 +111,15 @@ VAR_SLOPE_REPOP = "slope_repop_enabled"
 --
 function get_default_messages()
     return {
-        "@C(@DSlopeTrain@C) @x256CHOO @x256CHOO@W, the train is moving @C%s@W!$C",
-        "@C(@DSlopeTrain@C) @WALL ABOARD! The train is moving @C%s@W... @x256CHOO @x256CHOO@W!$C",
+        east = {
+            "@x27[@x45SlopeTrain@x27] @x159CHOO CHOO ALL ABOARD! @W>>> @x214EAST @W>>> @x214Est! @W>>> @x214Oost! @W>>> @x214Timur!$C",
+        },
+        south = {
+            "@x27[@x45SlopeTrain@x27] @x159CHOO CHOO ALL ABOARD! @Wvvv @x201SOUTH @Wvvv @x201Sud! @Wvvv @x201Zuid! @Wvvv @x201Selatan!$C",
+        },
+        west = {
+            "@x27[@x45SlopeTrain@x27] @x159CHOO CHOO ALL ABOARD! @W<<< @x082WEST @W<<< @x082Ouest! @W<<< @x082West! @W<<< @x082Barat!$C",
+        }
     }
 end
 
@@ -130,17 +137,25 @@ function load_state()
     -- Apply trigger group state
     EnableGroup("slopeRepop", slope_repop_enabled)
 
-    -- Train messages (JSON array)
+    -- Train messages (JSON object with direction keys)
     local saved_msgs = GetVariable(VAR_TRAIN_MSG)
     if saved_msgs ~= nil then
         local ok, decoded = pcall(json.decode, saved_msgs)
-        if ok and type(decoded) == "table" and #decoded > 0 then
-            train_msg = decoded
+        if ok and type(decoded) == "table" then
+            -- Check if it's the new direction-keyed format
+            if decoded.east ~= nil and decoded.south ~= nil and decoded.west ~= nil then
+                train_messages = decoded
+            elseif #decoded > 0 then
+                -- Old format: flat array - migrate to new format with defaults
+                train_messages = get_default_messages()
+            else
+                train_messages = get_default_messages()
+            end
         else
-            train_msg = get_default_messages()
+            train_messages = get_default_messages()
         end
     else
-        train_msg = get_default_messages()
+        train_messages = get_default_messages()
     end
 end
 
@@ -148,8 +163,8 @@ function save_state()
     SetVariable(VAR_CHAN, chan or "gtell")
     SetVariable(VAR_CURRENT_PASS, current_pass or "onedaypass")
     SetVariable(VAR_SLOPE_REPOP, tostring(slope_repop_enabled))
-    if train_msg ~= nil then
-        SetVariable(VAR_TRAIN_MSG, json.encode(train_msg))
+    if train_messages ~= nil then
+        SetVariable(VAR_TRAIN_MSG, json.encode(train_messages))
     end
 end
 
@@ -400,14 +415,14 @@ current_pass = "onedaypass"
 ROOM_PINNACLE = 38813
 
 -- First rooms of each slope (entered from pinnacle)
-ROOM_SLOPE_EAST_START = 36614
+ROOM_SLOPE_EAST_START = 38814
 ROOM_SLOPE_SOUTH_START = 38825
 ROOM_SLOPE_WEST_START = 38836
 
 -- Last rooms of each slope
-ROOM_SLOPE_EAST_END = 36623
-ROOM_SLOPE_SOUTH_END = 36634
-ROOM_SLOPE_WEST_END = 36845
+ROOM_SLOPE_EAST_END = 38823
+ROOM_SLOPE_SOUTH_END = 38834
+ROOM_SLOPE_WEST_END = 38845
 
 slope_directions = {
 	slingshot = "enter slingshot",
@@ -430,12 +445,7 @@ for i = 38814, 38845 do
 	end
 end
 
--- train_msg is loaded via load_state() in OnPluginInstall
-
--- Helper to fill all %s placeholders with the same value
-function repeat_sprintf(template, value)
-    return template:gsub("%%s", value)
-end
+-- train_messages is loaded via load_state() in OnPluginInstall
 
 function OnPluginBroadcast(msg, id, name, text)
     if id == plugin_id_gmcp_handler then
@@ -609,15 +619,16 @@ end
 
 function slope_success(direction)
     -- Nil safety checks
-    if train_msg == nil or #train_msg == 0 then
-        train_msg = get_default_messages()
+    if train_messages == nil or train_messages[direction] == nil then
+        train_messages = get_default_messages()
     end
     if chan == nil or chan == "" then
         chan = "gtell"
     end
 
-    -- Use repeat_sprintf so all %s get the same direction
-    local slope_msg = repeat_sprintf(train_msg[math.random(1, #train_msg)], direction:upper())
+    -- Select random message from direction-specific array
+    local dir_messages = train_messages[direction]
+    local slope_msg = dir_messages[math.random(1, #dir_messages)]
     last_train_msg = slope_msg
     SendNoEcho(chan .. " " .. slope_msg)
 end
@@ -647,10 +658,20 @@ function expired_pass_action()
 end
 
 function set_slope_message()
+    -- Ensure train_messages is initialized
+    if train_messages == nil then
+        train_messages = get_default_messages()
+    end
+
+    -- Build current content with section markers
+    local current_content = "=== EAST ===\r\n" .. table.concat(train_messages.east or {}, "\r\n")
+        .. "\r\n\r\n=== SOUTH ===\r\n" .. table.concat(train_messages.south or {}, "\r\n")
+        .. "\r\n\r\n=== WEST ===\r\n" .. table.concat(train_messages.west or {}, "\r\n")
+
     local messages = utils.editbox(
-        "Custom slope messages.\nUse %s as a substitute for direction.\nOne custom message per line.\nTo prevent color bleeding end with $C.",
+        "Custom slope messages per direction.\nOne message per line under each section.\nTo prevent color bleeding end with $C.",
         "Slope Notifications",
-        table.concat(train_msg, "\r\n")
+        current_content
     )
 
     if not messages then
@@ -658,22 +679,41 @@ function set_slope_message()
         return
     end
 
-    local new_messages = {}
+    -- Parse sections
+    local new_messages = { east = {}, south = {}, west = {} }
+    local current_section = nil
+
     for line in messages:gmatch("[^\r\n]+") do
-        table.insert(new_messages, line)
+        local trimmed = line:match("^%s*(.-)%s*$")
+        if trimmed == "=== EAST ===" then
+            current_section = "east"
+        elseif trimmed == "=== SOUTH ===" then
+            current_section = "south"
+        elseif trimmed == "=== WEST ===" then
+            current_section = "west"
+        elseif current_section ~= nil and trimmed ~= "" then
+            table.insert(new_messages[current_section], trimmed)
+        end
     end
 
-    if #new_messages == 0 then
-        Note("[SlopeTrain] No messages entered. Reverting to default messages.")
-        new_messages = {
-            "@C(@DSlopeTrain@C) @x256CHOO @x256CHOO@W, the train is moving @C%s@W!$C",
-            "@C(@DSlopeTrain@C) @WALL ABOARD! The train moving @C%s@W... @x256CHOO @x256CHOO@W!$C"
-        }
+    -- Validate: each direction must have at least one message
+    local defaults = get_default_messages()
+    if #new_messages.east == 0 then
+        new_messages.east = defaults.east
+        Note("[SlopeTrain] No East messages entered. Using default.")
+    end
+    if #new_messages.south == 0 then
+        new_messages.south = defaults.south
+        Note("[SlopeTrain] No South messages entered. Using default.")
+    end
+    if #new_messages.west == 0 then
+        new_messages.west = defaults.west
+        Note("[SlopeTrain] No West messages entered. Using default.")
     end
 
-    train_msg = new_messages
-    SetVariable("train_msg", json.encode(train_msg))  -- ✅ JSON-safe, keeps symbols intact
-    Note("[SlopeTrain] Saved custom messages.")
+    train_messages = new_messages
+    save_state()
+    Note("[SlopeTrain] Saved custom messages for all directions.")
 end
 
 function set_channel_cmd(new_channel)
