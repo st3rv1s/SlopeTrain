@@ -20,6 +20,14 @@
       script="init_plugin"
       enabled="y"
       send_to="12"></timer>
+    <timer
+      name="timer_pass_purchase_timeout"
+      second="30"
+      active_closed="y"
+      script="cancel_pending_pass_purchase"
+      enabled="n"
+      one_shot="y"
+      send_to="12"></timer>
   </timers>
 
   <aliases>
@@ -105,6 +113,7 @@ VAR_CHAN = "chan"
 VAR_CURRENT_PASS = "current_pass"
 VAR_TRAIN_MSG = "train_msg"
 VAR_SLOPE_REPOP = "slope_repop_enabled"
+VAR_AUTO_BUY_PASS = "auto_buy_pass"
 
 --
 -- State persistence functions
@@ -112,13 +121,13 @@ VAR_SLOPE_REPOP = "slope_repop_enabled"
 function get_default_messages()
     return {
         east = {
-            "@x27[@x45SlopeTrain@x27] @x159CHOO CHOO ALL ABOARD! @W>>> @x214EAST @W>>> @x214Est! @W>>> @x214Oost! @W>>> @x214Timur!$C",
+            "@x057[@x038SlopeTrain@x057] @x159CHOO CHOO ALL ABOARD! @W>>> @x214EAST @W>>> @x214Est! @W>>> @x214Oost! @W>>> @x214Timur!$C",
         },
         south = {
-            "@x27[@x45SlopeTrain@x27] @x159CHOO CHOO ALL ABOARD! @Wvvv @x201SOUTH @Wvvv @x201Sud! @Wvvv @x201Zuid! @Wvvv @x201Selatan!$C",
+            "@x057[@x038SlopeTrain@x057] @x159CHOO CHOO ALL ABOARD! @Wvvv @x201SOUTH @Wvvv @x201Sud! @Wvvv @x201Zuid! @Wvvv @x201Selatan!$C",
         },
         west = {
-            "@x27[@x45SlopeTrain@x27] @x159CHOO CHOO ALL ABOARD! @W<<< @x082WEST @W<<< @x082Ouest! @W<<< @x082West! @W<<< @x082Barat!$C",
+            "@x057[@x038SlopeTrain@x057] @x159CHOO CHOO ALL ABOARD! @W<<< @x082WEST @W<<< @x082Ouest! @W<<< @x082West! @W<<< @x082Barat!$C",
         }
     }
 end
@@ -136,6 +145,10 @@ function load_state()
 
     -- Apply trigger group state
     EnableGroup("slopeRepop", slope_repop_enabled)
+
+    -- Auto-buy pass (default: false - just notify user)
+    local auto_buy = GetVariable(VAR_AUTO_BUY_PASS)
+    auto_buy_pass_enabled = (auto_buy == "true")
 
     -- Train messages (JSON object with direction keys)
     local saved_msgs = GetVariable(VAR_TRAIN_MSG)
@@ -163,6 +176,7 @@ function save_state()
     SetVariable(VAR_CHAN, chan or "gtell")
     SetVariable(VAR_CURRENT_PASS, current_pass or "onedaypass")
     SetVariable(VAR_SLOPE_REPOP, tostring(slope_repop_enabled))
+    SetVariable(VAR_AUTO_BUY_PASS, tostring(auto_buy_pass_enabled))
     if train_messages ~= nil then
         SetVariable(VAR_TRAIN_MSG, json.encode(train_messages))
     end
@@ -407,12 +421,15 @@ on_slope = false
 slope_repop_enabled = true
 chan = "gtell"
 current_pass = "onedaypass"
+auto_buy_pass_enabled = false  -- Default: just notify, don't auto-buy
+pending_pass_purchase = nil    -- Track pass to buy when arriving at shop
 
 
 --
 -- Room ID constants
 --
 ROOM_PINNACLE = 38813
+ROOM_EPIC_SHOP = 38714  -- Shop for oneweekpass and 250usespass
 
 -- First rooms of each slope (entered from pinnacle)
 ROOM_SLOPE_EAST_START = 38814
@@ -498,11 +515,23 @@ end
 
 -- Called when the player moves to a different room
 function on_room_change(previous_room_id, new_room_id)
-    if not is_group_leader then
+    if new_room_id == nil then
         return
     end
 
-    if new_room_id == nil then
+    -- Handle pending pass purchase (anyone can buy a pass)
+    if pending_pass_purchase then
+        local pass = pending_pass_purchase
+        local expected_room = (pass == "onedaypass") and ROOM_PINNACLE or ROOM_EPIC_SHOP
+        if new_room_id == expected_room then
+            pending_pass_purchase = nil
+            EnableTimer("timer_pass_purchase_timeout", false)
+            buy_pass(pass)
+        end
+    end
+
+    -- Slope announcements only for group leader
+    if not is_group_leader then
         return
     end
 
@@ -641,9 +670,33 @@ end
 
 function expired_pass_action()
     local pass = current_pass or "onedaypass"
+    local shop_room = (pass == "onedaypass") and ROOM_PINNACLE or ROOM_EPIC_SHOP
 
-    Execute("mapper goto 38714")
+    if not auto_buy_pass_enabled then
+        -- Default behavior: just notify user
+        cnote("@b[SlopeTrain] @WYour pass has expired!")
+        if pass == "onedaypass" then
+            cnote("@b[SlopeTrain] @WPurchase a new pass at: @CPinnacle (mapper goto " .. ROOM_PINNACLE .. ")")
+        else
+            cnote("@b[SlopeTrain] @WPurchase a new pass at: @CEpic Shop (mapper goto " .. ROOM_EPIC_SHOP .. ")")
+        end
+        return
+    end
 
+    -- Auto-buy enabled
+    if room.id == shop_room then
+        -- Already at the shop, buy immediately
+        buy_pass(pass)
+    else
+        -- Navigate and buy on arrival
+        pending_pass_purchase = pass
+        EnableTimer("timer_pass_purchase_timeout", true)
+        Note("[SlopeTrain] Navigating to shop to buy " .. pass .. "...")
+        Execute("mapper goto " .. shop_room)
+    end
+end
+
+function buy_pass(pass)
     if pass == "250usespass" then
         SendNoEcho("buy 250usespass")
     elseif pass == "oneweekpass" then
@@ -651,10 +704,21 @@ function expired_pass_action()
     elseif pass == "onedaypass" then
         SendNoEcho("buy onedaypass")
     end
-
     SendNoEcho("keyring put pass")
-    Note("[SlopeTrain] Pass purchased. Returning to Pinnacle...")
-    Execute("mapper goto " .. ROOM_PINNACLE)
+    Note("[SlopeTrain] Pass purchased and added to keyring.")
+
+    -- Return to pinnacle after purchase
+    if room.id ~= ROOM_PINNACLE then
+        Note("[SlopeTrain] Returning to Pinnacle...")
+        Execute("mapper goto " .. ROOM_PINNACLE)
+    end
+end
+
+function cancel_pending_pass_purchase()
+    if pending_pass_purchase then
+        Note("[SlopeTrain] Pass purchase timed out (30s). Cancelling.")
+        pending_pass_purchase = nil
+    end
 end
 
 function set_slope_message()
@@ -763,16 +827,6 @@ function toggle_pass_type()
     cnote(string.format("@b[SlopeTrain] Pass type toggled. Current pass type: %s", display_formats[current_pass]))
 end
 
-function show_current_pass()
-    local display_formats = {
-        ["250usespass"] = "@W[@G250 Uses @RPass@W]",
-        oneweekpass    = "@W[@COne Week @RPass@W]",
-        onedaypass     = "@W[@yOne Day @RPass@W]"
-    }
-
-    cnote(string.format("@b[SlopeTrain] Current pass type: %s", display_formats[current_pass] or current_pass))
-end
-
 function toggle_slope_repop()
     slope_repop_enabled = not slope_repop_enabled
     EnableGroup("slopeRepop", slope_repop_enabled)
@@ -781,6 +835,16 @@ function toggle_slope_repop()
         cnote("@b[SlopeTrain] Repop message is now @GON")
     else
         cnote("@b[SlopeTrain] Repop message is now @ROFF")
+    end
+end
+
+function toggle_auto_buy_pass()
+    auto_buy_pass_enabled = not auto_buy_pass_enabled
+    save_state()
+    if auto_buy_pass_enabled then
+        cnote("@b[SlopeTrain] Auto-buy pass is now @GON")
+    else
+        cnote("@b[SlopeTrain] Auto-buy pass is now @ROFF @W(will notify only)")
     end
 end
 
@@ -810,6 +874,7 @@ function show_status()
     cnote("@C+@W-------------------[@CSlopeTrain Status@W]--------------------@C+@w")
     cnote("@WChannel:        @C" .. (chan or "gtell"))
     cnote("@WPass Type:      @C" .. (current_pass or "onedaypass"))
+    cnote("@WAuto-Buy Pass:  " .. (auto_buy_pass_enabled and "@GON" or "@ROFF (notify only)"))
     cnote("@WRepop Notify:   " .. (slope_repop_enabled and "@GON" or "@ROFF"))
     cnote("@WGroup Leader:   " .. (is_group_leader and "@GYes" or "@RNo"))
     cnote("@WIn Icefall:     " .. ((is_in_icefall == true) and "@GYes" or "@RNo"))
@@ -849,15 +914,10 @@ function alias_slopetrain(name, line, wildcards)
             set_slope_message()
         elseif subcmd == "pass" then
             toggle_pass_type()
+        elseif subcmd == "autobuy" then
+            toggle_auto_buy_pass()
         else
-            cnote("@b[SlopeTrain] Usage: slopetrain set [msg|pass]")
-        end
-    elseif cmd == "show" then
-        local subcmd = (parts[1] and parts[1]:lower()) or ""
-        if subcmd == "pass" then
-            show_current_pass()
-        else
-            cnote("@b[SlopeTrain] Usage: slopetrain show pass")
+            cnote("@b[SlopeTrain] Usage: slopetrain set [msg|pass|autobuy]")
         end
     elseif cmd == "channel" then
         local channel = parts[1]
@@ -885,16 +945,16 @@ function show_helpfile()
   ColourNote("white", "", "", "white", "", "")
   ColourNote("lightcyan", "", "slopetrain                - ", "white", "", "Shows this helpfile")
   ColourNote("lightcyan", "", "slopetrain help           - ", "white", "", "Shows this helpfile")
-  ColourNote("lightcyan", "", "slopetrain status         - ", "white", "", "Shows current plugin status")
   ColourNote("lightcyan", "", "slopetrain reload         - ", "white", "", "Reload the plugin")
   ColourNote("lightcyan", "", "slopetrain update check   - ", "white", "", "Check your current version")
   ColourNote("lightcyan", "", "slopetrain update install - ", "white", "", "Install latest version")
   ColourNote("white", "", "", "white", "", "")
   cnote("@C+@W-------------------[@CSlopeTrain Setup@W]------------------------@C+@w")
   ColourNote("white", "", "", "white", "", "")
+  ColourNote("lightcyan", "", "slopetrain status         - ", "white", "", "Show all current settings")
   ColourNote("lightcyan", "", "slopetrain set msg        - ", "white", "", "Setup your own slope messages")
   ColourNote("lightcyan", "", "slopetrain set pass       - ", "white", "", "Toggle between type of pass")
-  ColourNote("lightcyan", "", "slopetrain show pass      - ", "white", "", "Shows your current set pass")
+  ColourNote("lightcyan", "", "slopetrain set autobuy    - ", "white", "", "Toggle auto-buy pass (default: off)")
   ColourNote("lightcyan", "", "slopetrain repop          - ", "white", "", "Turn on/off the repop message")
   ColourNote("lightcyan", "", "slopetrain channel <chan> - ", "white", "", "Set repop channel: ", "cyan", "", chan or "gtell")
   ColourNote("white", "", "", "white", "", "")
