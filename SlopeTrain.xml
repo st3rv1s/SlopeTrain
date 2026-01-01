@@ -44,7 +44,7 @@
       send_to="12"
       sequence="100"
       script="enter_slope"
-    />reod
+    />
 	
     <!-- Alias for checking update -->
     <alias
@@ -273,15 +273,55 @@ end
 
 
 
+--
+-- Character state constants (from kill_em_all_core.lua)
+--
+char_state_standing = 3
+char_state_fighting = 8
+char_state_sleeping = 9
+char_state_resting = 11
+
+--
+-- Room state tracking
+--
+room = {
+    id = 0,
+    name = "",
+    zone = ""
+}
+
+--
+-- Character state tracking
+--
+character = {
+    state = 0,
+    previous_state = 0
+}
+
+--
+-- Plugin state variables
+--
 is_group_leader = false
 player_name = ""
-room_num = 0
-current_zone = ""
-in_combat = false
 on_slope = false
 slope_repop_enabled = true
 chan = GetVariable("chan") or "gtell"
 
+
+--
+-- Room ID constants
+--
+ROOM_PINNACLE = 38813
+
+-- First rooms of each slope (entered from pinnacle)
+ROOM_SLOPE_EAST_START = 36614
+ROOM_SLOPE_SOUTH_START = 38825
+ROOM_SLOPE_WEST_START = 38836
+
+-- Last rooms of each slope
+ROOM_SLOPE_EAST_END = 36623
+ROOM_SLOPE_SOUTH_END = 36634
+ROOM_SLOPE_WEST_END = 36845
 
 slope_directions = {
 	slingshot = "enter slingshot",
@@ -291,9 +331,9 @@ slope_directions = {
 }
 
 slope_exits = {
-	west = 38836,
-	east = 38814,
-	south = 38825,
+	west = ROOM_SLOPE_WEST_START,
+	east = ROOM_SLOPE_EAST_START,
+	south = ROOM_SLOPE_SOUTH_START,
 }
 
 slope_rooms = {}
@@ -328,76 +368,120 @@ function OnPluginBroadcast(msg, id, name, text)
     elseif text == "group" then
       is_group_leader = (gmcp("group.leader") == gmcp("char.base.name"))
     elseif text == "room.info" then
-      room_num = tonumber(gmcp("room.info.num"))
-      is_in_icefall = (gmcp("room.info.zone") == "icefall")
-      on_enter_room()
+      on_room_info_update(gmcp("room.info"))
     elseif text == "char.status" then
-      local status = gmcp("char.status")
-      local state = tonumber(status.state)
-	  in_combat = (state == 8)
+      on_character_status_update(gmcp("char.status"))
     end
   end
 end
 
-function on_enter_room()
-	on_slope = slope_rooms[room_num] or false
+--
+-- Room change detection
+--
+function on_room_info_update(room_info)
+    local previous_room_id = room.id
+    local previous_zone = room.zone
+
+    room.id = tonumber(room_info.num)
+    room.name = room_info.name
+    room.zone = room_info.zone
+
+    -- Update convenience flags
+    is_in_icefall = (room.zone == "icefall")
+    on_slope = slope_rooms[room.id] or false
+
+    -- Detect room changes
+    if previous_room_id ~= 0 and previous_room_id ~= room.id then
+        on_room_change(previous_room_id, room.id)
+    end
+
+    -- Detect zone changes
+    if previous_zone ~= "" and previous_zone ~= room.zone then
+        on_zone_change(previous_zone, room.zone)
+    end
 end
+
+-- Called when the player moves to a different room
+function on_room_change(previous_room_id, new_room_id)
+    if not is_group_leader then
+        return
+    end
+
+    -- Announce when arriving at a slope start
+    if new_room_id == ROOM_SLOPE_EAST_START then
+        slope_success("east")
+    elseif new_room_id == ROOM_SLOPE_SOUTH_START then
+        slope_success("south")
+    elseif new_room_id == ROOM_SLOPE_WEST_START then
+        slope_success("west")
+    end
+end
+
+-- Called when the player enters a different zone
+function on_zone_change(previous_zone, new_zone)
+    -- TODO: Add zone change logic here
+    -- Example: disable features when leaving icefall
+end
+
+--
+-- Character state change detection
+--
+function on_character_status_update(status)
+    character.previous_state = character.state
+    character.state = tonumber(status.state)
+
+    -- Detect state transitions
+    if character.previous_state ~= character.state then
+        on_state_change(character.previous_state, character.state)
+    end
+end
+
+-- Called when character state changes (fighting, standing, sleeping, etc.)
+function on_state_change(previous_state, new_state)
+    -- Entering combat
+    if previous_state ~= char_state_fighting and new_state == char_state_fighting then
+        on_enter_fighting_state()
+    end
+
+    -- Exiting combat
+    if previous_state == char_state_fighting and new_state ~= char_state_fighting then
+        on_exit_fighting_state()
+    end
+end
+
+-- Called when the player enters combat
+function on_enter_fighting_state()
+    -- TODO: Add enter combat logic here
+end
+
+-- Called when the player exits combat (mob died, fled, etc.)
+function on_exit_fighting_state()
+    -- TODO: Add exit combat logic here
+    -- Example: auto-loot, continue moving, resume train
+end
+
+-- Map direction names to slope start rooms
+slope_start_rooms = {
+    east = ROOM_SLOPE_EAST_START,
+    south = ROOM_SLOPE_SOUTH_START,
+    west = ROOM_SLOPE_WEST_START,
+}
 
 function enter_slope(name, line, wildcards)
-  if in_combat then
-    Note("[SlopeTrain] You're in combat. Movement blocked.")
-    return
-  end
+    if character.state == char_state_fighting then
+        Note("[SlopeTrain] You're in combat. Movement blocked.")
+        return
+    end
 
-  local direction = name
-  last_slope_direction = direction
+    local target_room = slope_start_rooms[name]
+    if not target_room then
+        Note("[SlopeTrain] Unknown direction: " .. name)
+        return
+    end
 
-  if is_in_icefall and room_num ~= 38813 then
-    Execute("mapper goto 38813")
-
-    wait.make(function()
-      while tonumber(gmcp("room.info.num")) ~= 38813 do
-        wait.time(1)
-      end
-	  
-	  -- pause at pinnacle
-	  wait.time(1)
-
-      continue_slope_entry(direction)
-    end)
-
-    return
-  end
-
-  continue_slope_entry(direction)
-end
-
-function continue_slope_entry(direction)
-  if is_group_leader then
-    SendNoEcho(direction)
-
-    wait.make(function()
-      local timeout = 1
-      local elapsed = 0
-      local dir
-
-      while elapsed < timeout do
-        dir = get_slope_direction(room_num)
-        if dir then break end
-
-        wait.time(0.2)
-        elapsed = elapsed + 0.2
-      end
-
-      if dir then
-        slope_success(dir)
-      else
-        Note("[SlopeTrain] Timed out waiting for valid slope entry.")
-      end
-    end)
-  else
-    SendNoEcho(direction:lower())
-  end
+    -- Use mapper goto directly to the slope start
+    -- Announcement happens in on_room_change when we arrive
+    Execute("mapper goto " .. target_room)
 end
 
 function get_slope_direction(room)
@@ -410,27 +494,22 @@ function get_slope_direction(room)
 end
 
 function move_next_slope_room()
-    if not on_slope then
-        Note("[SlopeTrain] You are not on the slope.")
-        return
-    end
+    -- Move to the next slope in order: east -> south -> west -> east (cycle)
+    -- Only works when at the last room of a slope
 
-    local exits = gmcp("room.info.exits")
-    if not exits or type(exits) ~= "table" then
-        Note("[SlopeTrain] No exits found in GMCP.")
-        return
-    end
-
-    local count, dir = 0, nil
-    for k, _ in pairs(exits) do
-        count = count + 1
-        dir = k  -- store last exit found
-    end
-
-    if dir then
-        SendNoEcho(dir)  -- just move along the available exit
+    if room.id == ROOM_SLOPE_EAST_END then
+        Note("[SlopeTrain] East slope complete. Moving to South slope...")
+        Execute("mapper goto " .. ROOM_SLOPE_SOUTH_START)
+    elseif room.id == ROOM_SLOPE_SOUTH_END then
+        Note("[SlopeTrain] South slope complete. Moving to West slope...")
+        Execute("mapper goto " .. ROOM_SLOPE_WEST_START)
+    elseif room.id == ROOM_SLOPE_WEST_END then
+        Note("[SlopeTrain] West slope complete. Moving to East slope...")
+        Execute("mapper goto " .. ROOM_SLOPE_EAST_START)
     else
-        Note("[SlopeTrain] No valid exits to move.")
+        Note("[SlopeTrain] You must be at the end of a slope to use this command.")
+        Note("[SlopeTrain] Current room: " .. room.id)
+        Note("[SlopeTrain] End rooms: East=" .. ROOM_SLOPE_EAST_END .. ", South=" .. ROOM_SLOPE_SOUTH_END .. ", West=" .. ROOM_SLOPE_WEST_END)
     end
 end
 
@@ -461,18 +540,8 @@ function expired_pass_action()
     end
 
     SendNoEcho("keyring put pass")
-	Execute("mapper goto 38813")
-	
-    wait.make(function()
-        while tonumber(gmcp("room.info.num")) ~= 38813 do
-            wait.time(1)
-        end
-    
-        if last_slope_direction then
-            continue_slope_entry(last_slope_direction)
-            last_slope_direction = nil
-        end
-    end)
+    Note("[SlopeTrain] Pass purchased. Returning to Pinnacle...")
+    Execute("mapper goto " .. ROOM_PINNACLE)
 end
 
 function set_slope_message()
