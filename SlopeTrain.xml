@@ -8,12 +8,30 @@
     save_state="y"
     date_written="2025-3-24 17:59:57"
     requires="5.07"
-    version="1.27"
+    version="1.28"
   >
   </plugin>
 
+  <timers>
+    <timer
+      name="timer_init_plugin"
+      second="0.5"
+      active_closed="y"
+      script="init_plugin"
+      enabled="y"
+      send_to="12"></timer>
+    <timer
+      name="timer_pass_purchase_timeout"
+      second="30"
+      active_closed="y"
+      script="cancel_pending_pass_purchase"
+      enabled="n"
+      one_shot="y"
+      send_to="12"></timer>
+  </timers>
+
   <aliases>
-    <!-- Alias for South direction (Chutes) -->
+    <!-- Slope navigation: icee/ices/icew navigate to East/South/West slopes -->
     <alias
       match="^ices$"
       name="south"
@@ -23,8 +41,6 @@
       sequence="100"
       script="enter_slope"
     />
-    
-    <!-- Alias for East direction (Hatchery) -->
     <alias
       match="^icee$"
       name="east"
@@ -34,8 +50,6 @@
       sequence="100"
       script="enter_slope"
     />
-    
-    <!-- Alias for West direction (Chutes) -->
     <alias
       match="^icew$"
       name="west"
@@ -44,26 +58,17 @@
       send_to="12"
       sequence="100"
       script="enter_slope"
-    />reod
-	
-    <!-- Alias for checking update -->
+    />
+
     <alias
-      match="^slopetrain update check$"
+      match="^slopetrain ?(.*)$"
       enabled="y"
       regexp="y"
       sequence="99"
-      script="update_check_alias"
+      script="alias_slopetrain"
+      send_to="12"
     />
-    
-    <!-- Alias for installing update -->
-    <alias
-      match="^slopetrain update install$"
-      enabled="y"
-      regexp="y"
-      sequence="99"
-      script="update_install_alias"
-    />
-	
+
     <alias
       match="^icenxt$"
       enabled="y"
@@ -72,462 +77,620 @@
       script="move_next_slope_room"
     />
 
-    <!-- Alias to set slope notification messages -->
-    <alias
-      match="slopetrain set msg"
-      enabled="y"
-      sequence="99"
-      script="set_slope_message"
-    />
-
-    <!-- Alias to set the notification channel -->
-    <alias
-      match="slopetrain channel *"
-      enabled="y"
-      sequence="99"
-      script="set_channel"
-    />
-
-    <!-- Alias to set to repeat the direction -->
     <alias
       match="repdir"
       enabled="y"
       sequence="99"
       script="repeat_train_direction"
     />
-
-    <!-- Alias to set to type of pass -->	
-    <alias
-      match="slopetrain set pass"
-      enabled="y"
-      sequence="99"
-      script="toggle_pass_type"
-    />
-
-    <!-- Alias to show type of pass -->
-    <alias
-      match="slopetrain show pass"
-      enabled="y"
-      sequence="99"
-      script="show_current_pass"
-    />
-	
-    <!-- Alias to show helpfile -->
-    <alias
-      match="slopetrain help"
-      enabled="y"
-      sequence="99"
-      script="show_helpfile"
-    />
-
-    <!-- Alias to turn off repop message -->
-    <alias
-      match="slopetrain repop"
-      enabled="y"
-      sequence="99"
-      script="toggle_slope_repop"
-    />
   </aliases>
 
   <script>
     <![CDATA[
 
+--------------------------------------------------------------------------------
+-- DEPENDENCIES & CONSTANTS
+--------------------------------------------------------------------------------
+
 require("wait")
 require("async")
-json = require("json")
-
-plugin_url = "https://raw.githubusercontent.com/st3rv1s/SlopeTrain/refs/heads/main/SlopeTrain.xml"
-SetVariable("DownloadURL", plugin_url)
-plugin_protocol = "HTTPS"
-plugin_prefix = "[SlopeTrain]"
-
-function update_check_alias()
-	update_plugin("check")
-	ColourNote("white", "", plugin_prefix .. " Checking for updated version...")
-end
-
-function update_install_alias()
-	update_plugin("install")
-	ColourNote("white", "", plugin_prefix .. " Checking for and installing updated version...")
-end
-
-function reload_plugin()
-	local scriptPrefix = GetAlphaOption("script_prefix")
-	local retval
-
-	-- If the user has not already specified the script prefix for this version of mush, pick a
-	-- reasonable default value
-	if scriptPrefix == "" then
-		scriptPrefix = "\\\\\\"
-		SetAlphaOption("script_prefix", scriptPrefix)
-	end
-
-	-- Tell mush to reload the plugin in one second.  We can't do it directly here because a
-	-- plugin can't unload itself.  Even if it could, how could it tell mush to load it again
-	-- if it weren't installed?
-	retval = Execute(scriptPrefix .. "DoAfterSpecial(0.1, \"ReloadPlugin('" .. GetPluginID() .. "')\", sendto.script)")
-end
-
-function update_plugin(mode)
-	update_mode = mode
-
-	wait.make(get_plugin_file)
-end
-
-function get_plugin_file()
-	local urlThread = async.request(plugin_url, plugin_protocol)
-
-	if not urlThread then
-		note_error("Couldn't create async url request.")
-		return
-	end
-
-	local timeout = 10
-	local totTime = 0
-	while urlThread:alive() and totTime < timeout do
-		wait.time(0.1)
-		totTime = totTime + 0.1
-	end
-
-	local remoteRet, pluginData, status, headers, fullStatus = urlThread:join()
-
-	if not status then
-		ColourNote("red", "", plugin_prefix .. " Couldn't download plugin file. No status code.")
-
-		return
-	end
-
-	if status ~= 200 then
-		ColourNote("red", "", plugin_prefix .. " Plugin file request status code: " .. status .. ": " .. fullStatus)
-		return
-	end
-
-	local currentVersion = GetPluginInfo(GetPluginID(), 19) or 0
-	local currentVerStr = tostring(currentVersion)
-	local remoteVerStr = string.match(pluginData, '%s%s+version="([0-9%.]+)"')
-	local remoteVersion = tonumber(remoteVerStr or "") or 0
-
-	if remoteVersion == currentVersion then
-		ColourNote("white", "", plugin_prefix .. " You are running the most recent version (v" .. currentVerStr .. ")")
-	elseif remoteVersion < currentVersion then
-		ColourNote(
-			"white",
-			"",
-			plugin_prefix .. " You have a newer version than is publicly available. (v" .. currentVerStr .. ")"
-		)
-	elseif update_mode == "check" then
-		ColourNote(
-			"white",
-			"",
-			plugin_prefix .. " You are running v" .. currentVerStr .. ", but there's a newer version v" .. remoteVerStr
-		)
-	elseif update_mode == "install" then
-		ColourNote(
-			"white",
-			"",
-			plugin_prefix .. " Updating plugin from version " .. currentVerStr .. " to version " .. remoteVerStr
-		)
-
-		local pluginFile = GetPluginInfo(GetPluginID(), 6)
-		local file = io.open(pluginFile, "wb")
-		file:write(pluginData)
-		file:close()
-		reload_plugin()
-	else
-		ColourNote("red", "", plugin_prefix .. " Invalid update mode: " .. update_mode)
-	end
-end
------------------------ End Plugin Update Code -----------------------
-
--- Ensure the gmcphelper module is loaded
 require("gmcphelper")
-
--- Load the Aardwolf color functions	
+json = require("json")
 dofile(GetInfo(60) .. "aardwolf_colors.lua")
 
--- Basic print function that supports Aardwolf, xterm, and ANSI color codes
+PLUGIN_URL = "https://raw.githubusercontent.com/st3rv1s/SlopeTrain/refs/heads/main/SlopeTrain.xml"
+SetVariable("DownloadURL", PLUGIN_URL)
+PLUGIN_PROTOCOL = "HTTPS"
+PLUGIN_PREFIX = "[SlopeTrain]"
+PLUGIN_ID_GMCP_HANDLER = "3e7dedbe37e44942dd46d264"
+
+-- Variable keys for state persistence
+VAR_CHAN = "chan"
+VAR_CURRENT_PASS = "current_pass"
+VAR_TRAIN_MSG = "train_msg"
+VAR_SLOPE_REPOP = "slope_repop_enabled"
+VAR_AUTO_BUY_PASS = "auto_buy_pass"
+VAR_AUTO_NEXT_SLOPE = "auto_next_slope"
+VAR_REPOP_MSG = "repop_msg"
+
+-- Character state constants
+CHAR_STATE_STANDING = 3
+CHAR_STATE_FIGHTING = 8
+CHAR_STATE_SLEEPING = 9
+CHAR_STATE_RESTING = 11
+
+-- Room ID constants
+ROOM_PINNACLE = 38813
+ROOM_EPIC_SHOP = 38714
+
+-- Slope configuration: room ranges, entry commands, and rotation order
+SLOPE_CONFIG = {
+    east = {
+        start = 38814,
+        finish = 38823,
+        enter_cmd = "east",
+        next = "south"
+    },
+    south = {
+        start = 38825,
+        finish = 38834,
+        enter_cmd = "south",
+        next = "west"
+    },
+    west = {
+        start = 38836,
+        finish = 38845,
+        enter_cmd = "west",
+        next = "east"
+    }
+}
+
+-- Follow-the-leader commands (trigger name -> command to send)
+FOLLOW_COMMANDS = {
+    slingshot = "enter slingshot",
+    kill = "west",
+    hatchery = "east",
+    chutes = "south"
+}
+
+--------------------------------------------------------------------------------
+-- STATE & DEFAULT DATA
+--------------------------------------------------------------------------------
+
+function get_default_messages()
+    return {
+        east = {
+            "@x057[@x038SlopeTrain@x057] @x159CHOO CHOO ALL ABOARD! @W>>> @x214EAST @W>>> @x214Est! @W>>> @x214Oost! @W>>> @x214Timur!$C",
+        },
+        south = {
+            "@x057[@x038SlopeTrain@x057] @x159CHOO CHOO ALL ABOARD! @Wvvv @x201SOUTH @Wvvv @x201Sud! @Wvvv @x201Zuid! @Wvvv @x201Selatan!$C",
+        },
+        west = {
+            "@x057[@x038SlopeTrain@x057] @x159CHOO CHOO ALL ABOARD! @W<<< @x082WEST @W<<< @x082Ouest! @W<<< @x082West! @W<<< @x082Barat!$C",
+        }
+    }
+end
+
+function get_default_repop_message()
+    return {
+        "@C(@x244SlopeTrain@C) @WThe engine just got @GFUELED@W. @x256C@x256H@x256U@x256G@x256G@x256A @x256C@x256H@x256U@x256G@x256G@x256A @x256C@x256H@x256O@x256O @x256C@x256H@x256O@x256O$C"
+    }
+end
+
+-- Room state tracking (nil = uninitialized)
+room = {
+    id = nil,
+    name = nil,
+    zone = nil
+}
+
+-- Character state tracking (nil = uninitialized)
+character = {
+    state = nil,
+    previous_state = nil
+}
+
+-- Plugin state variables
+is_group_leader = false
+is_in_icefall = false
+player_name = ""
+slope_repop_enabled = true
+chan = "gtell"
+current_pass = "onedaypass"
+auto_buy_pass_enabled = false
+auto_next_slope_enabled = false
+pending_pass_purchase = nil
+last_train_msg = nil
+repop_messages = nil
+
+-- Slope completion tracking (resets on repop)
+-- visited: entered any room on slope, started: entered start room, finished: entered finish room
+slope_status = {
+    east = { visited = false, started = false, finished = false },
+    south = { visited = false, started = false, finished = false },
+    west = { visited = false, started = false, finished = false }
+}
+
+--------------------------------------------------------------------------------
+-- UTILITY FUNCTIONS
+--------------------------------------------------------------------------------
+
+function gmcp(s)
+    local ret, datastring = CallPlugin(PLUGIN_ID_GMCP_HANDLER, "gmcpdata_as_string", s)
+    if ret ~= 0 or datastring == nil then
+        return nil
+    end
+    local data = nil
+    pcall(function() data = loadstring("return " .. datastring)() end)
+    return data
+end
+
 function cnote(string)
     AnsiNote(stylesToANSI(ColoursToStyles(string)))
 end
 
--- Show the helpfile after installing or loading the plugin
+function load_state()
+    chan = GetVariable(VAR_CHAN) or "gtell"
+    current_pass = GetVariable(VAR_CURRENT_PASS) or "onedaypass"
+
+    local repop = GetVariable(VAR_SLOPE_REPOP)
+    slope_repop_enabled = (repop == nil) or (repop == "true")
+
+    local auto_buy = GetVariable(VAR_AUTO_BUY_PASS)
+    auto_buy_pass_enabled = (auto_buy == "true")
+
+    local auto_next = GetVariable(VAR_AUTO_NEXT_SLOPE)
+    auto_next_slope_enabled = (auto_next == "true")
+
+    -- Load train messages: expect {east={...}, south={...}, west={...}} format
+    -- Falls back to defaults if missing keys or invalid data
+    local saved_msgs = GetVariable(VAR_TRAIN_MSG)
+    if saved_msgs ~= nil then
+        local ok, decoded = pcall(json.decode, saved_msgs)
+        if ok and type(decoded) == "table" and
+           decoded.east ~= nil and decoded.south ~= nil and decoded.west ~= nil then
+            train_messages = decoded
+        else
+            train_messages = get_default_messages()
+        end
+    else
+        train_messages = get_default_messages()
+    end
+
+    local saved_repop = GetVariable(VAR_REPOP_MSG)
+    if saved_repop ~= nil then
+        local ok, decoded = pcall(json.decode, saved_repop)
+        if ok and type(decoded) == "table" and #decoded > 0 then
+            repop_messages = decoded
+        else
+            repop_messages = get_default_repop_message()
+        end
+    else
+        repop_messages = get_default_repop_message()
+    end
+end
+
+function save_state()
+    SetVariable(VAR_CHAN, chan or "gtell")
+    SetVariable(VAR_CURRENT_PASS, current_pass or "onedaypass")
+    SetVariable(VAR_SLOPE_REPOP, tostring(slope_repop_enabled))
+    SetVariable(VAR_AUTO_BUY_PASS, tostring(auto_buy_pass_enabled))
+    SetVariable(VAR_AUTO_NEXT_SLOPE, tostring(auto_next_slope_enabled))
+    if train_messages ~= nil then
+        SetVariable(VAR_TRAIN_MSG, json.encode(train_messages))
+    end
+    if repop_messages ~= nil then
+        SetVariable(VAR_REPOP_MSG, json.encode(repop_messages))
+    end
+end
+
+function reset_slope_status()
+    slope_status = {
+        east = { visited = false, started = false, finished = false },
+        south = { visited = false, started = false, finished = false },
+        west = { visited = false, started = false, finished = false }
+    }
+end
+
+function is_slope_completed(direction)
+    local status = slope_status[direction]
+    return status and status.started and status.finished
+end
+
+function all_slopes_completed()
+    for direction, _ in pairs(SLOPE_CONFIG) do
+        if not is_slope_completed(direction) then
+            return false
+        end
+    end
+    return true
+end
+
+--------------------------------------------------------------------------------
+-- PLUGIN LIFECYCLE
+--------------------------------------------------------------------------------
+
 function OnPluginInstall()
-	show_helpfile()
-	
-local saved_msgs = GetVariable("train_msg")
-	if saved_msgs then
-		local ok, decoded = pcall(json.decode, saved_msgs)
-		if ok and type(decoded) == "table" and #decoded > 0 then
-			train_msg = decoded
-		else
-			train_msg = {
-				"@C(@DSlopeTrain@C) Default message moving @C%s@W!$C"
-			}
-		end
-	else
-		train_msg = {
-			"@C(@DSlopeTrain@C) Default message moving @C%s@W!$C"
-		}
-	end
+    show_helpfile()
 end
 
-
-
-is_group_leader = false
-player_name = ""
-room_num = 0
-current_zone = ""
-in_combat = false
-on_slope = false
-slope_repop_enabled = true
-chan = GetVariable("chan") or "gtell"
-
-
-slope_directions = {
-	slingshot = "enter slingshot",
-	kill = "west",
-	hatchery = "east",
-	chutes = "south",
-}
-
-slope_exits = {
-	west = 38836,
-	east = 38814,
-	south = 38825,
-}
-
-slope_rooms = {}
-
-for i = 38814, 38845 do
-	if i ~= 38824 and i ~= 38835 then
-		slope_rooms[i] = true
-	end
+function OnPluginConnect()
+    EnableTimer("timer_init_plugin", true)
 end
 
-local status, result = pcall(json.decode, GetVariable("train_msg"))
-if status and type(result) == "table" then
-	train_msg = result
-else
-	Note("[SlopeTrain] No saved train messages located. Using defaults. Customize them with 'slopetrain set msg'.")
-	train_msg = {
-		"@C(@DSlopeTrain@C) @x256CHOO @x256CHOO@W, the train is moving @C%s@W!$C",
-		"@C(@DSlopeTrain@C) @WALL ABOARD! The train is moving @C%s@W... @x256CHOO @x256CHOO@W!$C",
-	}
-	SetVariable("train_msg", json.encode(train_msg))
+function OnPluginEnable()
+    EnableTimer("timer_init_plugin", true)
 end
 
--- Helper to fill all %s placeholders with the same value
-function repeat_sprintf(template, value)
-    return template:gsub("%%s", value)
+function OnPluginSaveState()
+    save_state()
 end
 
 function OnPluginBroadcast(msg, id, name, text)
-  if id == "3e7dedbe37e44942dd46d264" then
-    if text == "char.base" then
-      player_name = gmcp("char.base.name")
-    elseif text == "group" then
-      is_group_leader = (gmcp("group.leader") == gmcp("char.base.name"))
-    elseif text == "room.info" then
-      room_num = tonumber(gmcp("room.info.num"))
-      is_in_icefall = (gmcp("room.info.zone") == "icefall")
-      on_enter_room()
-    elseif text == "char.status" then
-      local status = gmcp("char.status")
-      local state = tonumber(status.state)
-	  in_combat = (state == 8)
+    if id == PLUGIN_ID_GMCP_HANDLER then
+        if text == "char.base" then
+            local base = gmcp("char.base")
+            if base ~= nil then
+                player_name = base.name or ""
+            end
+        elseif text == "group" then
+            local group_info = gmcp("group")
+            if group_info ~= nil and player_name ~= "" then
+                is_group_leader = (group_info.leader == player_name)
+            end
+        elseif text == "room.info" then
+            on_room_info_update(gmcp("room.info"))
+        elseif text == "char.status" then
+            on_character_status_update(gmcp("char.status"))
+        end
     end
-  end
 end
 
-function on_enter_room()
-	on_slope = slope_rooms[room_num] or false
+function init_plugin()
+    if not IsConnected() then
+        return
+    end
+
+    local current_state = gmcp("char.status.state")
+    if current_state == nil then
+        return
+    end
+    local state_num = tonumber(current_state)
+    if state_num ~= CHAR_STATE_STANDING and state_num ~= CHAR_STATE_FIGHTING and
+       state_num ~= CHAR_STATE_SLEEPING and state_num ~= CHAR_STATE_RESTING then
+        return
+    end
+
+    EnableTimer("timer_init_plugin", false)
+    load_state()
+    reset_slope_status()
+    initialize_from_gmcp()
+
+    -- If we're mid-slope on connect, mark as visited (but not started)
+    local current_slope = get_current_slope()
+    if current_slope then
+        slope_status[current_slope].visited = true
+    end
+end
+
+function initialize_from_gmcp()
+    local room_info = gmcp("room.info")
+    if room_info ~= nil then
+        room.id = tonumber(room_info.num)
+        room.name = room_info.name
+        room.zone = room_info.zone
+        is_in_icefall = (room.zone == "icefall")
+    end
+
+    local char_status = gmcp("char.status")
+    if char_status ~= nil then
+        character.state = tonumber(char_status.state) or 0
+    end
+
+    local char_base = gmcp("char.base")
+    if char_base ~= nil then
+        player_name = char_base.name or ""
+    end
+
+    local group_info = gmcp("group")
+    if group_info ~= nil and player_name ~= "" then
+        local leader = group_info.leader
+        is_group_leader = (leader ~= nil and leader == player_name)
+    end
+end
+
+--------------------------------------------------------------------------------
+-- EVENT HANDLERS
+--------------------------------------------------------------------------------
+
+function on_room_info_update(room_info)
+    if room_info == nil then
+        return
+    end
+
+    local previous_room_id = room.id
+    room.id = tonumber(room_info.num)
+    room.name = room_info.name
+    room.zone = room_info.zone
+    is_in_icefall = (room.zone == "icefall")
+
+    if previous_room_id ~= nil and previous_room_id ~= room.id then
+        on_room_change(previous_room_id, room.id)
+    end
+end
+
+function on_room_change(previous_room_id, new_room_id)
+    if new_room_id == nil then
+        return
+    end
+
+    -- Handle pending pass purchase
+    if pending_pass_purchase then
+        local pass = pending_pass_purchase
+        local expected_room = (pass == "onedaypass") and ROOM_PINNACLE or ROOM_EPIC_SHOP
+        if new_room_id == expected_room then
+            pending_pass_purchase = nil
+            EnableTimer("timer_pass_purchase_timeout", false)
+            buy_pass(pass)
+        end
+    end
+
+    -- Track slope completion status (for all players)
+    for direction, config in pairs(SLOPE_CONFIG) do
+        if new_room_id >= config.start and new_room_id <= config.finish then
+            slope_status[direction].visited = true
+            if new_room_id == config.start then
+                slope_status[direction].started = true
+            elseif new_room_id == config.finish then
+                slope_status[direction].finished = true
+            end
+        end
+    end
+
+    -- Slope announcements only for group leader
+    if not is_group_leader then
+        return
+    end
+
+    -- Announce when arriving at a slope start
+    for direction, config in pairs(SLOPE_CONFIG) do
+        if new_room_id == config.start then
+            slope_success(direction)
+            return
+        end
+    end
+end
+
+function on_character_status_update(status)
+    if status == nil then
+        return
+    end
+
+    character.previous_state = character.state
+    character.state = tonumber(status.state)
+
+    if character.previous_state ~= nil and character.state ~= nil and
+       character.previous_state ~= character.state then
+        on_state_change(character.previous_state, character.state)
+    end
+end
+
+function on_state_change(previous_state, new_state)
+    -- Auto-advance to next slope when exiting combat at slope finish (leader only)
+    if auto_next_slope_enabled and
+       is_group_leader and
+       previous_state == CHAR_STATE_FIGHTING and
+       new_state == CHAR_STATE_STANDING then
+        for direction, config in pairs(SLOPE_CONFIG) do
+            if room.id == config.finish then
+                local next_slope = config.next
+                if is_slope_completed(next_slope) then
+                    if all_slopes_completed() then
+                        cnote("@b[SlopeTrain] @RAll slopes completed. Waiting for repop...")
+                    else
+                        cnote("@b[SlopeTrain] @RAuto-next: " .. next_slope:sub(1,1):upper() .. next_slope:sub(2) .. " already done. Try manually.")
+                    end
+                    return
+                end
+
+                Note("[SlopeTrain] Auto-advancing to " ..
+                     next_slope:sub(1,1):upper() .. next_slope:sub(2) .. " slope...")
+                Execute("mapper goto " .. SLOPE_CONFIG[next_slope].start)
+                return
+            end
+        end
+    end
+end
+
+--------------------------------------------------------------------------------
+-- SLOPE FUNCTIONALITY
+--------------------------------------------------------------------------------
+
+function get_current_slope()
+    if room.id == nil then
+        return nil
+    end
+
+    for direction, config in pairs(SLOPE_CONFIG) do
+        if room.id >= config.start and room.id <= config.finish then
+            return direction
+        end
+    end
+
+    return nil
+end
+
+function get_location_status()
+    if not is_in_icefall then
+        return "@RNot in Icefall"
+    end
+
+    local slope = get_current_slope()
+    if slope then
+        return slope:sub(1,1):upper() .. slope:sub(2) .. " Slope"
+    else
+        return "Icefall (not on slope)"
+    end
 end
 
 function enter_slope(name, line, wildcards)
-  if in_combat then
-    Note("[SlopeTrain] You're in combat. Movement blocked.")
-    return
-  end
-
-  local direction = name
-  last_slope_direction = direction
-
-  if is_in_icefall and room_num ~= 38813 then
-    Execute("mapper goto 38813")
-
-    wait.make(function()
-      while tonumber(gmcp("room.info.num")) ~= 38813 do
-        wait.time(1)
-      end
-	  
-	  -- pause at pinnacle
-	  wait.time(1)
-
-      continue_slope_entry(direction)
-    end)
-
-    return
-  end
-
-  continue_slope_entry(direction)
-end
-
-function continue_slope_entry(direction)
-  if is_group_leader then
-    SendNoEcho(direction)
-
-    wait.make(function()
-      local timeout = 1
-      local elapsed = 0
-      local dir
-
-      while elapsed < timeout do
-        dir = get_slope_direction(room_num)
-        if dir then break end
-
-        wait.time(0.2)
-        elapsed = elapsed + 0.2
-      end
-
-      if dir then
-        slope_success(dir)
-      else
-        Note("[SlopeTrain] Timed out waiting for valid slope entry.")
-      end
-    end)
-  else
-    SendNoEcho(direction:lower())
-  end
-end
-
-function get_slope_direction(room)
-  for dir, num in pairs(slope_exits) do
-    if num == room then
-      return dir
+    if character.state == nil or character.state == CHAR_STATE_FIGHTING then
+        Note("[SlopeTrain] " .. (character.state == nil and "State unknown." or "In combat.") .. " Movement blocked.")
+        return
     end
-  end
-  return nil
+
+    local config = SLOPE_CONFIG[name]
+    if not config then
+        Note("[SlopeTrain] Unknown direction: " .. name)
+        return
+    end
+
+    if is_slope_completed(name) then
+        cnote("@b[SlopeTrain] @R" .. name:sub(1,1):upper() .. name:sub(2) .. " slope already completed this repop. Waiting for repop...")
+        return
+    end
+
+    Execute("mapper goto " .. config.start)
 end
 
 function move_next_slope_room()
-    if not on_slope then
-        Note("[SlopeTrain] You are not on the slope.")
+    local current_slope = get_current_slope()
+
+    if current_slope == nil then
+        Note("[SlopeTrain] You must be on a slope to use this command.")
+        Note("[SlopeTrain] Current room: " .. tostring(room.id or "Unknown"))
         return
     end
 
-    local exits = gmcp("room.info.exits")
-    if not exits or type(exits) ~= "table" then
-        Note("[SlopeTrain] No exits found in GMCP.")
+    local next_slope = SLOPE_CONFIG[current_slope].next
+    if is_slope_completed(next_slope) then
+        if all_slopes_completed() then
+            cnote("@b[SlopeTrain] @RAll slopes completed this repop. Waiting for repop...")
+        else
+            cnote("@b[SlopeTrain] @R" .. next_slope:sub(1,1):upper() .. next_slope:sub(2) .. " slope already completed. Try a different slope.")
+        end
         return
     end
 
-    local count, dir = 0, nil
-    for k, _ in pairs(exits) do
-        count = count + 1
-        dir = k  -- store last exit found
-    end
-
-    if dir then
-        SendNoEcho(dir)  -- just move along the available exit
-    else
-        Note("[SlopeTrain] No valid exits to move.")
-    end
+    Note("[SlopeTrain] Moving from " .. current_slope:sub(1,1):upper() .. current_slope:sub(2) ..
+         " to " .. next_slope:sub(1,1):upper() .. next_slope:sub(2) .. " slope...")
+    Execute("mapper goto " .. SLOPE_CONFIG[next_slope].start)
 end
 
 function slope_success(direction)
-    -- Use repeat_sprintf so all %s get the same direction
-    local slope_msg = repeat_sprintf(train_msg[math.random(1, #train_msg)], direction:upper())
+    if train_messages == nil or train_messages[direction] == nil or #train_messages[direction] == 0 then
+        train_messages = get_default_messages()
+    end
+    if chan == nil or chan == "" then
+        chan = "gtell"
+    end
+
+    local dir_messages = train_messages[direction]
+    local slope_msg = dir_messages[math.random(1, #dir_messages)]
     last_train_msg = slope_msg
     SendNoEcho(chan .. " " .. slope_msg)
 end
 
 function follow_the_leader(name, line, wildcards)
-	if wildcards[1] == gmcp("group.leader") then
-		SendNoEcho(slope_directions[name])
-	end
-end
-
-function expired_pass_action()
-    local current_pass = GetVariable("current_pass") or "onedaypass"
-	
-	Execute("mapper goto 38714")
-	
-    if current_pass == "250usespass" then
-        SendNoEcho("buy 250usespass")
-    elseif current_pass == "oneweekpass" then
-        SendNoEcho("buy oneweekpass")
-    elseif current_pass == "onedaypass" then
-        SendNoEcho("buy onedaypass")
+    if wildcards[1] == gmcp("group.leader") then
+        SendNoEcho(FOLLOW_COMMANDS[name])
     end
-
-    SendNoEcho("keyring put pass")
-	Execute("mapper goto 38813")
-	
-    wait.make(function()
-        while tonumber(gmcp("room.info.num")) ~= 38813 do
-            wait.time(1)
-        end
-    
-        if last_slope_direction then
-            continue_slope_entry(last_slope_direction)
-            last_slope_direction = nil
-        end
-    end)
 end
 
-function set_slope_message()
-    local messages = utils.editbox(
-        "Custom slope messages.\nUse %s as a substitute for direction.\nOne custom message per line.\nTo prevent color bleeding end with $C.",
-        "Slope Notifications",
-        table.concat(train_msg, "\r\n")
-    )
-
-    if not messages then
-        Note("[SlopeTrain] No custom messages or user cancelled. Keeping existing messages.")
+function repeat_train_direction()
+    if not is_in_icefall then
+        Note("[SlopeTrain] You can only repeat directions in Icefall.")
         return
     end
 
-    local new_messages = {}
-    for line in messages:gmatch("[^\r\n]+") do
-        table.insert(new_messages, line)
+    if last_train_msg then
+        local channel = chan or "gtell"
+        SendNoEcho(channel .. " " .. last_train_msg)
+        Note("[SlopeTrain] Repeating last direction")
+    else
+        Note("[SlopeTrain] No previous direction to repeat.")
     end
-
-    if #new_messages == 0 then
-        Note("[SlopeTrain] No messages entered. Reverting to default messages.")
-        new_messages = {
-            "@C(@DSlopeTrain@C) @x256CHOO @x256CHOO@W, the train is moving @C%s@W!$C",
-            "@C(@DSlopeTrain@C) @WALL ABOARD! The train moving @C%s@W... @x256CHOO @x256CHOO@W!$C"
-        }
-    end
-
-    train_msg = new_messages
-    SetVariable("train_msg", json.encode(train_msg))  -- ✅ JSON-safe, keeps symbols intact
-    Note("[SlopeTrain] Saved custom messages.")
 end
 
-function set_channel(name, line, wildcards)
-    SetVariable("chan", wildcards[1])
-    cnote("@b[SlopeTrain] Changed report channel to:@C " .. wildcards[1])
+function slope_repop()
+    -- Check if we're currently mid-slope before resetting
+    local current_slope = get_current_slope()
+
+    -- Reset slope completion tracking on repop
+    reset_slope_status()
+
+    -- If we were mid-slope, mark as visited (but not started, since we didn't enter from start)
+    if current_slope then
+        slope_status[current_slope].visited = true
+    end
+
+    if not slope_repop_enabled then
+        return
+    end
+
+    if not chan or chan == "" then
+        ColourNote("red", "", "SlopeTrain: Channel is not set. Use 'slopetrain channel' to set one.")
+        return
+    end
+
+    if is_group_leader then
+        if repop_messages == nil or #repop_messages == 0 then
+            repop_messages = get_default_repop_message()
+        end
+        local msg = repop_messages[math.random(1, #repop_messages)]
+        SendNoEcho(chan .. " " .. msg)
+    end
 end
 
-last_train_msg = nil
+function expired_pass_action()
+    local pass = current_pass or "onedaypass"
+    local shop_room = (pass == "onedaypass") and ROOM_PINNACLE or ROOM_EPIC_SHOP
 
-function repeat_train_direction()
-  if not is_in_icefall then
-    Note("[SlopeTrain] You can only repeat directions in Icefall.")
-    return
-  end
-  
-  if last_train_msg then
-     SendNoEcho("gtell " .. last_train_msg)
-    Note("[SlopeTrain] Repeating last direction")
-  else
-    Note("[SlopeTrain] No previous direction to repeat.")
-  end
+    if not auto_buy_pass_enabled then
+        cnote("@b[SlopeTrain] @WYour pass has expired!")
+        if pass == "onedaypass" then
+            cnote("@b[SlopeTrain] @WPurchase a new pass at: @CPinnacle (mapper goto " .. ROOM_PINNACLE .. ")")
+        else
+            cnote("@b[SlopeTrain] @WPurchase a new pass at: @CEpic Shop (mapper goto " .. ROOM_EPIC_SHOP .. ")")
+        end
+        return
+    end
+
+    if room.id == shop_room then
+        buy_pass(pass)
+    else
+        pending_pass_purchase = pass
+        EnableTimer("timer_pass_purchase_timeout", true)
+        Note("[SlopeTrain] Navigating to shop to buy " .. pass .. "...")
+        Execute("mapper goto " .. shop_room)
+    end
+end
+
+function buy_pass(pass)
+    if pass == "250usespass" then
+        SendNoEcho("buy 250usespass")
+    elseif pass == "oneweekpass" then
+        SendNoEcho("buy oneweekpass")
+    elseif pass == "onedaypass" then
+        SendNoEcho("buy onedaypass")
+    end
+    SendNoEcho("keyring put pass")
+    Note("[SlopeTrain] Pass purchased and added to keyring.")
+
+    if room.id ~= ROOM_PINNACLE then
+        Note("[SlopeTrain] Returning to Pinnacle...")
+        Execute("mapper goto " .. ROOM_PINNACLE)
+    end
+end
+
+function cancel_pending_pass_purchase()
+    if pending_pass_purchase then
+        Note("[SlopeTrain] Pass purchase timed out (30s). Cancelling.")
+        pending_pass_purchase = nil
+    end
 end
 
 function toggle_pass_type()
-    local current_pass = GetVariable("current_pass") or "onedaypass"
     local pass_ids = {"250usespass", "oneweekpass", "onedaypass"}
     local current_index = 0
 
@@ -539,8 +702,8 @@ function toggle_pass_type()
     end
 
     local next_index = (current_index % #pass_ids) + 1
-    local next_pass = pass_ids[next_index]
-    SetVariable("current_pass", next_pass)
+    current_pass = pass_ids[next_index]
+    save_state()
 
     local display_formats = {
         ["250usespass"] = "@W[@G250 Uses @RPass@W]",
@@ -548,78 +711,349 @@ function toggle_pass_type()
         onedaypass     = "@W[@yOne Day @RPass@W]"
     }
 
-    cnote(string.format("@b[SlopeTrain] Pass type toggled. Current pass type: %s", display_formats[next_pass]))
+    cnote(string.format("@b[SlopeTrain] Pass type toggled. Current pass type: %s", display_formats[current_pass]))
 end
 
-function show_current_pass()
-    local current_pass = GetVariable("current_pass") or "onedaypass"
-
-    local display_formats = {
-        ["250usespass"] = "@W[@G250 Uses @RPass@W]",
-        oneweekpass    = "@W[@COne Week @RPass@W]",
-        onedaypass     = "@W[@yOne Day @RPass@W]"
-    }
-
-    cnote(string.format("@b[SlopeTrain] Current pass type: %s", display_formats[current_pass] or current_pass))
-end
-
-function toggle_slope_repop()
-    if slope_repop_enabled then
-        slope_repop_enabled = false
-		EnableGroup("slopeRepop", false)
-        cnote("@b[SlopeTrain]Repop message is now @ROFF")
+function toggle_auto_buy_pass()
+    auto_buy_pass_enabled = not auto_buy_pass_enabled
+    save_state()
+    if auto_buy_pass_enabled then
+        cnote("@b[SlopeTrain] Auto-buy pass is now @GON")
     else
-        slope_repop_enabled = true
-		EnableGroup("slopeRepop", true)
-        cnote("@b[SlopeTrain]Repop message is now @GON")
+        cnote("@b[SlopeTrain] Auto-buy pass is now @ROFF @W(will notify only)")
     end
 end
 
-function slope_repop()
-  if not chan or chan == "" then
-    ColourNote("red", "", "SlopeTrain: Channel is not set. Use 'slopetrain channel' to set one.")
-    return
-  end
-  
-  if is_group_leader then
-  SendNoEcho(chan .. " @C(@x244SlopeTrain@C) @WThe engine just got @GFUELED@W. @x256C@x256H@x256U@x256G@x256G@x256A @x256C@x256H@x256U@x256G@x256G@x256A @x256C@x256H@x256O@x256O @x256C@x256H@x256O@x256O$C")
-  end
+function toggle_auto_next_slope()
+    auto_next_slope_enabled = not auto_next_slope_enabled
+    save_state()
+    if auto_next_slope_enabled then
+        cnote("@b[SlopeTrain] Auto-next slope is now @GON")
+    else
+        cnote("@b[SlopeTrain] Auto-next slope is now @ROFF")
+    end
+end
+
+--------------------------------------------------------------------------------
+-- COMMANDS & UI
+--------------------------------------------------------------------------------
+
+function set_slope_message()
+    if train_messages == nil then
+        train_messages = get_default_messages()
+    end
+
+    local current_content = "=== EAST ===\r\n" .. table.concat(train_messages.east or {}, "\r\n")
+        .. "\r\n\r\n=== SOUTH ===\r\n" .. table.concat(train_messages.south or {}, "\r\n")
+        .. "\r\n\r\n=== WEST ===\r\n" .. table.concat(train_messages.west or {}, "\r\n")
+
+    local messages = utils.editbox(
+        "Custom slope messages per direction.\nOne message per line under each section.\nTo prevent color bleeding end with $C.",
+        "Slope Notifications",
+        current_content
+    )
+
+    if not messages then
+        Note("[SlopeTrain] No custom messages or user cancelled. Keeping existing messages.")
+        return
+    end
+
+    local new_messages = { east = {}, south = {}, west = {} }
+    local current_section = nil
+
+    for line in messages:gmatch("[^\r\n]+") do
+        local trimmed = line:match("^%s*(.-)%s*$")
+        if trimmed == "=== EAST ===" then
+            current_section = "east"
+        elseif trimmed == "=== SOUTH ===" then
+            current_section = "south"
+        elseif trimmed == "=== WEST ===" then
+            current_section = "west"
+        elseif current_section ~= nil and trimmed ~= "" then
+            table.insert(new_messages[current_section], trimmed)
+        end
+    end
+
+    local defaults = get_default_messages()
+    if #new_messages.east == 0 then
+        new_messages.east = defaults.east
+        Note("[SlopeTrain] No East messages entered. Using default.")
+    end
+    if #new_messages.south == 0 then
+        new_messages.south = defaults.south
+        Note("[SlopeTrain] No South messages entered. Using default.")
+    end
+    if #new_messages.west == 0 then
+        new_messages.west = defaults.west
+        Note("[SlopeTrain] No West messages entered. Using default.")
+    end
+
+    train_messages = new_messages
+    save_state()
+    Note("[SlopeTrain] Saved custom messages for all directions.")
+end
+
+function set_repop_message()
+    if repop_messages == nil then
+        repop_messages = get_default_repop_message()
+    end
+
+    local current_content = table.concat(repop_messages, "\r\n")
+
+    local messages = utils.editbox(
+        "Custom repop messages (one per line).\nA random message will be sent on each repop.\nTo prevent color bleeding end with $C.",
+        "Repop Notifications",
+        current_content
+    )
+
+    if not messages then
+        Note("[SlopeTrain] No custom messages or user cancelled. Keeping existing messages.")
+        return
+    end
+
+    local new_messages = {}
+    for line in messages:gmatch("[^\r\n]+") do
+        local trimmed = line:match("^%s*(.-)%s*$")
+        if trimmed ~= "" then
+            table.insert(new_messages, trimmed)
+        end
+    end
+
+    if #new_messages == 0 then
+        new_messages = get_default_repop_message()
+        Note("[SlopeTrain] No messages entered. Using default.")
+    end
+
+    repop_messages = new_messages
+    save_state()
+    Note("[SlopeTrain] Saved " .. #repop_messages .. " custom repop message(s).")
+end
+
+function set_channel_cmd(new_channel)
+    chan = new_channel
+    save_state()
+    cnote("@b[SlopeTrain] Changed report channel to: @C" .. chan)
+end
+
+function toggle_slope_repop()
+    slope_repop_enabled = not slope_repop_enabled
+    save_state()
+    if slope_repop_enabled then
+        cnote("@b[SlopeTrain] Repop message is now @GON")
+    else
+        cnote("@b[SlopeTrain] Repop message is now @ROFF")
+    end
+end
+
+function alias_slopetrain(name, line, wildcards)
+    local args = wildcards[1] or ""
+    local parts = {}
+    for word in args:gmatch("%S+") do
+        table.insert(parts, word)
+    end
+
+    local cmd = (parts[1] and parts[1]:lower()) or "help"
+    table.remove(parts, 1)
+
+    if cmd == "help" then
+        show_helpfile()
+    elseif cmd == "update" then
+        local subcmd = (parts[1] and parts[1]:lower()) or "check"
+        if subcmd == "check" then
+            update_check_alias()
+        elseif subcmd == "install" then
+            update_install_alias()
+        else
+            cnote("@b[SlopeTrain] Usage: slopetrain update [check|install]")
+        end
+    elseif cmd == "set" then
+        local subcmd = (parts[1] and parts[1]:lower()) or ""
+        if subcmd == "msg" then
+            set_slope_message()
+        elseif subcmd == "repop" then
+            set_repop_message()
+        elseif subcmd == "pass" then
+            toggle_pass_type()
+        elseif subcmd == "autobuy" then
+            toggle_auto_buy_pass()
+        elseif subcmd == "autonext" then
+            toggle_auto_next_slope()
+        else
+            cnote("@b[SlopeTrain] Usage: slopetrain set [msg|repop|pass|autobuy|autonext]")
+        end
+    elseif cmd == "channel" then
+        local channel = parts[1]
+        if channel ~= nil and channel ~= "" then
+            set_channel_cmd(channel)
+        else
+            cnote("@b[SlopeTrain] Current channel: @C" .. (chan or "gtell"))
+        end
+    elseif cmd == "repop" then
+        toggle_slope_repop()
+    elseif cmd == "status" then
+        show_status()
+    elseif cmd == "reload" then
+        reload_slopetrain()
+    else
+        cnote("@b[SlopeTrain] Unknown command: @R" .. cmd)
+        show_helpfile()
+    end
 end
 
 function show_helpfile()
-  cnote("")
-  cnote("@W                 @RIMPORTANT: SETUP YOUR CEXITS!                 @w")  
-  cnote("@C+@W-------------------[@CSlopeTrain  Helpfile@W]--------------------@C+@w")
-  ColourNote("white", "", "", "white", "", "")
-  ColourNote("lightcyan", "", "slopetrain update check   - ", "white", "", "Check your current version")
-  ColourNote("lightcyan", "", "slopetrain update install - ", "white", "", "Install latest version")
-  ColourNote("lightcyan", "", "slopetrain help           - ", "white", "", "Outputs this helpfile")
-  ColourNote("white", "", "", "white", "", "")
-  cnote("@C+@W-------------------[@CSlopeTrain Setup@W]------------------------@C+@w")
-  ColourNote("white", "", "", "white", "", "")
-  ColourNote("lightcyan", "", "slopetrain set msg        - ", "white", "", "Setup your own slope mesesages")
-  ColourNote("lightcyan", "", "slopetrain set pass       - ", "white", "", "Toggle between type of pass")
-  ColourNote("lightcyan", "", "slopetrain show pass      - ", "white", "", "Shows your current set pass")
-  ColourNote("lightcyan", "", "slopetrain repop          - ", "white", "", "Turn on/off the repop message") 
-  ColourNote("lightcyan", "", "slopetrain channel        - ", "white", "", "Set repop channel: ", "cyan", "", chan)
-  ColourNote("white", "", "", "white", "", "")
-  cnote("@C+@W-------------------[@CSlopeTrain Commands@W]---------------------@C+@w")
-  ColourNote("white", "", "", "white", "", "")
-  ColourNote("lightcyan", "", "icee                      - ", "white", "", "Move the train to the East slope")
-  ColourNote("lightcyan", "", "ices                      - ", "white", "", "Move the train to the South slope")
-  ColourNote("lightcyan", "", "icew                      - ", "white", "", "Move the train to the West slope")
-  ColourNote("lightcyan", "", "icenxt                 - ", "white", "", "To move to the next room on slope")  
-  ColourNote("lightcyan", "", "repdir                    - ", "white", "", "Manually report the last direction")
-  ColourNote("white", "", "", "white", "", "")
-  cnote("@C+@W-------------------[@CSlopeTrain Helpfile@W]---------------------@C+@w")
-  cnote("")
+    cnote("")
+    cnote("@W                 @RIMPORTANT: SETUP YOUR CEXITS!                 @w")
+    cnote("@C+@W-------------------[@CSlopeTrain  Helpfile@W]--------------------@C+@w")
+    ColourNote("white", "", "", "white", "", "")
+    ColourNote("lightcyan", "", "slopetrain                - ", "white", "", "Shows this helpfile")
+    ColourNote("lightcyan", "", "slopetrain help           - ", "white", "", "Shows this helpfile")
+    ColourNote("lightcyan", "", "slopetrain reload         - ", "white", "", "Reload the plugin")
+    ColourNote("lightcyan", "", "slopetrain update check   - ", "white", "", "Check your current version")
+    ColourNote("lightcyan", "", "slopetrain update install - ", "white", "", "Install latest version")
+    ColourNote("white", "", "", "white", "", "")
+    cnote("@C+@W-------------------[@CSlopeTrain Setup@W]------------------------@C+@w")
+    ColourNote("white", "", "", "white", "", "")
+    ColourNote("lightcyan", "", "slopetrain status         - ", "white", "", "Show all current settings")
+    ColourNote("lightcyan", "", "slopetrain set msg        - ", "white", "", "Setup your own slope messages")
+    ColourNote("lightcyan", "", "slopetrain set repop      - ", "white", "", "Setup your own repop messages")
+    ColourNote("lightcyan", "", "slopetrain set pass       - ", "white", "", "Toggle between type of pass")
+    ColourNote("lightcyan", "", "slopetrain set autobuy    - ", "white", "", "Toggle auto-buy pass (default: off)")
+    ColourNote("lightcyan", "", "slopetrain set autonext   - ", "white", "", "Toggle auto-next slope (default: off)")
+    ColourNote("lightcyan", "", "slopetrain repop          - ", "white", "", "Turn on/off the repop message")
+    ColourNote("lightcyan", "", "slopetrain channel <chan> - ", "white", "", "Set repop channel: ", "cyan", "", chan or "gtell")
+    ColourNote("white", "", "", "white", "", "")
+    cnote("@C+@W-------------------[@CSlopeTrain Commands@W]---------------------@C+@w")
+    ColourNote("white", "", "", "white", "", "")
+    ColourNote("lightcyan", "", "icee                      - ", "white", "", "Move the train to the East slope")
+    ColourNote("lightcyan", "", "ices                      - ", "white", "", "Move the train to the South slope")
+    ColourNote("lightcyan", "", "icew                      - ", "white", "", "Move the train to the West slope")
+    ColourNote("lightcyan", "", "icenxt                    - ", "white", "", "Move to the next slope")
+    ColourNote("lightcyan", "", "repdir                    - ", "white", "", "Manually repeat the last direction")
+    ColourNote("white", "", "", "white", "", "")
+    cnote("@C+@W-------------------[@CSlopeTrain Helpfile@W]---------------------@C+@w")
+    cnote("")
+end
+
+function show_status()
+    cnote("@C+@W--------------------[@CSlopeTrain Status@W]--------------------@C+@w")
+    cnote("@WChannel:         @C" .. (chan or "gtell"))
+    cnote("@WPass Type:       @C" .. (current_pass or "onedaypass"))
+    cnote("@WAuto-Buy Pass:   " .. (auto_buy_pass_enabled and "@GON" or "@ROFF (notify only)"))
+    cnote("@WAuto-Next Slope: " .. (auto_next_slope_enabled and "@GON" or "@ROFF"))
+    cnote("@WRepop Notify:    " .. (slope_repop_enabled and "@GON" or "@ROFF"))
+    cnote("@WRepop Messages:  @C" .. tostring(#(repop_messages or {})) .. " message(s)")
+    cnote("@WGroup Leader:    " .. (is_group_leader and "@GYes" or "@RNo"))
+    cnote("@WLocation:        @C" .. get_location_status())
+    cnote("@WCurrent Room:    @C" .. tostring(room.id or "Unknown"))
+    cnote("@WPlayer Name:     @C" .. (player_name or "Unknown"))
+    cnote("@C+@W----------------------[@CSlope Status@W]-----------------------@C+@w")
+    -- Use ipairs with explicit array for deterministic order: East, South, West
+    for _, direction in ipairs({"east", "south", "west"}) do
+        local status = slope_status[direction]
+        local display_dir = direction:sub(1,1):upper() .. direction:sub(2)
+        local label = string.format("%-16s", display_dir .. ":")
+        if is_slope_completed(direction) then
+            cnote("@W" .. label .. " @GCompleted")
+        elseif status.visited then
+            cnote("@W" .. label .. " @YIn Progress")
+        else
+            cnote("@W" .. label .. " @CAvailable")
+        end
+    end
+    cnote("@C+@W-----------------------------------------------------------@C+@w")
+end
+
+function reload_slopetrain()
+    cnote("@b[SlopeTrain] Reloading plugin...")
+    reload_plugin()
+end
+
+--------------------------------------------------------------------------------
+-- UPDATE SYSTEM
+--------------------------------------------------------------------------------
+
+function update_check_alias()
+    update_plugin("check")
+    ColourNote("white", "", PLUGIN_PREFIX .. " Checking for updated version...")
+end
+
+function update_install_alias()
+    update_plugin("install")
+    ColourNote("white", "", PLUGIN_PREFIX .. " Checking for and installing updated version...")
+end
+
+function reload_plugin()
+    local scriptPrefix = GetAlphaOption("script_prefix")
+
+    if scriptPrefix == "" then
+        scriptPrefix = "\\\\\\"
+        SetAlphaOption("script_prefix", scriptPrefix)
+    end
+
+    Execute(scriptPrefix .. "DoAfterSpecial(0.5, \"ReloadPlugin('" .. GetPluginID() .. "')\", sendto.script)")
+end
+
+function update_plugin(mode)
+    update_mode = mode
+    wait.make(get_plugin_file)
+end
+
+function get_plugin_file()
+    local urlThread = async.request(PLUGIN_URL, PLUGIN_PROTOCOL)
+
+    if not urlThread then
+        ColourNote("red", "", PLUGIN_PREFIX .. " Couldn't create async url request.")
+        return
+    end
+
+    local timeout = 10
+    local totTime = 0
+    while urlThread:alive() and totTime < timeout do
+        wait.time(0.1)
+        totTime = totTime + 0.1
+    end
+
+    local remoteRet, pluginData, status, headers, fullStatus = urlThread:join()
+
+    if not status then
+        ColourNote("red", "", PLUGIN_PREFIX .. " Couldn't download plugin file. No status code.")
+        return
+    end
+
+    if status ~= 200 then
+        ColourNote("red", "", PLUGIN_PREFIX .. " Plugin file request status code: " .. status .. ": " .. fullStatus)
+        return
+    end
+
+    local currentVersion = GetPluginInfo(GetPluginID(), 19) or 0
+    local currentVerStr = tostring(currentVersion)
+    local remoteVerStr = string.match(pluginData, '%s%s+version="([0-9%.]+)"')
+    local remoteVersion = tonumber(remoteVerStr or "") or 0
+
+    if remoteVersion == currentVersion then
+        ColourNote("white", "", PLUGIN_PREFIX .. " You are running the most recent version (v" .. currentVerStr .. ")")
+    elseif remoteVersion < currentVersion then
+        ColourNote("white", "", PLUGIN_PREFIX .. " You have a newer version than is publicly available. (v" .. currentVerStr .. ")")
+    elseif update_mode == "check" then
+        ColourNote("white", "", PLUGIN_PREFIX .. " You are running v" .. currentVerStr .. ", but there's a newer version v" .. remoteVerStr)
+    elseif update_mode == "install" then
+        ColourNote("white", "", PLUGIN_PREFIX .. " Updating plugin from version " .. currentVerStr .. " to version " .. remoteVerStr)
+
+        local pluginFile = GetPluginInfo(GetPluginID(), 6)
+        local file = io.open(pluginFile, "wb")
+        file:write(pluginData)
+        file:close()
+        reload_plugin()
+    else
+        ColourNote("red", "", PLUGIN_PREFIX .. " Invalid update mode: " .. update_mode)
+    end
 end
 
     ]]>
   </script>
 
   <triggers>
-    <!-- Trigger for leader entering slingshot -->
+    <!-- Follow-the-leader: auto-follow group leader into Icefall areas -->
     <trigger
       match="^([^ ]+) enters a gigantic slingshot, ready for another trip down the Avalanche Slalom!$"
       name="slingshot"
@@ -631,9 +1065,6 @@ end
       sequence="100"
       script="follow_the_leader"
     />
-
-
-    <!-- Trigger for Iced Fish Hatchery -->
     <trigger
       match="^([^ ]+) enters Iced Fish Hatchery.$"
       name="hatchery"
@@ -645,8 +1076,6 @@ end
       sequence="100"
       script="follow_the_leader"
     />
-
-    <!-- Trigger for Chutes and Empty Bladders -->
     <trigger
       match="^([^ ]+) enters Chutes and Empty Bladders.$"
       name="chutes"
@@ -658,8 +1087,6 @@ end
       sequence="100"
       script="follow_the_leader"
     />
-
-    <!-- Trigger for King of the Kill -->
     <trigger
       match="^([^ ]+) enters King of the Kill.$"
       name="kill"
@@ -671,8 +1098,8 @@ end
       sequence="100"
       script="follow_the_leader"
     />
-	
-    <!-- Trigger for expired pass -->
+
+    <!-- Pass expiration detection -->
     <trigger
       name="ExpiredPass"
       match="^A gruff ski patrol destroys your expired pass\!|You must have a ski pass in order to enter the powerup slopes\.$"
@@ -685,12 +1112,12 @@ end
       script="expired_pass_action"
     />
 	
-    <!-- Trigger for repop -->
+    <!-- Slope repop detection -->
     <trigger
       name="Repop"
       match="^The Avalanche Slalom is covered with dry powder snow\.$"
       enabled="y"
-      group="slopeRepop"
+      group="slopeTrain"
       regexp="y"
       send_to="12"
       ignore_case="y"
