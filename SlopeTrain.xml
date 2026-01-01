@@ -31,7 +31,7 @@
   </timers>
 
   <aliases>
-    <!-- Alias for South direction (Chutes) -->
+    <!-- Slope navigation: icee/ices/icew navigate to East/South/West slopes -->
     <alias
       match="^ices$"
       name="south"
@@ -41,8 +41,6 @@
       sequence="100"
       script="enter_slope"
     />
-    
-    <!-- Alias for East direction (Hatchery) -->
     <alias
       match="^icee$"
       name="east"
@@ -52,8 +50,6 @@
       sequence="100"
       script="enter_slope"
     />
-    
-    <!-- Alias for West direction (Chutes) -->
     <alias
       match="^icew$"
       name="west"
@@ -63,8 +59,7 @@
       sequence="100"
       script="enter_slope"
     />
-	
-    <!-- Unified slopetrain command dispatcher -->
+
     <alias
       match="^slopetrain ?(.*)$"
       enabled="y"
@@ -82,7 +77,6 @@
       script="move_next_slope_room"
     />
 
-    <!-- Alias to repeat the direction -->
     <alias
       match="repdir"
       enabled="y"
@@ -129,7 +123,7 @@ CHAR_STATE_RESTING = 11
 ROOM_PINNACLE = 38813
 ROOM_EPIC_SHOP = 38714
 
--- Unified slope configuration (consolidates slope_exits, slope_start_rooms, slope_directions)
+-- Slope configuration: room ranges, entry commands, and rotation order
 SLOPE_CONFIG = {
     east = {
         start = 38814,
@@ -248,17 +242,14 @@ function load_state()
     local auto_next = GetVariable(VAR_AUTO_NEXT_SLOPE)
     auto_next_slope_enabled = (auto_next == "true")
 
+    -- Load train messages: expect {east={...}, south={...}, west={...}} format
+    -- Falls back to defaults if missing keys or invalid data
     local saved_msgs = GetVariable(VAR_TRAIN_MSG)
     if saved_msgs ~= nil then
         local ok, decoded = pcall(json.decode, saved_msgs)
-        if ok and type(decoded) == "table" then
-            if decoded.east ~= nil and decoded.south ~= nil and decoded.west ~= nil then
-                train_messages = decoded
-            elseif #decoded > 0 then
-                train_messages = get_default_messages()
-            else
-                train_messages = get_default_messages()
-            end
+        if ok and type(decoded) == "table" and
+           decoded.east ~= nil and decoded.south ~= nil and decoded.west ~= nil then
+            train_messages = decoded
         else
             train_messages = get_default_messages()
         end
@@ -364,14 +355,15 @@ function init_plugin()
     if current_state == nil then
         return
     end
-    if ((current_state ~= "3") and (current_state ~= "8") and
-        (current_state ~= "9") and (current_state ~= "11")) then
+    local state_num = tonumber(current_state)
+    if state_num ~= CHAR_STATE_STANDING and state_num ~= CHAR_STATE_FIGHTING and
+       state_num ~= CHAR_STATE_SLEEPING and state_num ~= CHAR_STATE_RESTING then
         return
     end
 
     EnableTimer("timer_init_plugin", false)
     load_state()
-    reset_slope_status()  -- Reset slope tracking on connect/reconnect
+    reset_slope_status()
     initialize_from_gmcp()
 
     -- If we're mid-slope on connect, mark as visited (but not started)
@@ -417,8 +409,6 @@ function on_room_info_update(room_info)
     end
 
     local previous_room_id = room.id
-    local previous_zone = room.zone
-
     room.id = tonumber(room_info.num)
     room.name = room_info.name
     room.zone = room_info.zone
@@ -494,8 +484,6 @@ function on_state_change(previous_state, new_state)
         for direction, config in pairs(SLOPE_CONFIG) do
             if room.id == config.finish then
                 local next_slope = config.next
-
-                -- Check if next slope is already completed
                 if is_slope_completed(next_slope) then
                     if all_slopes_completed() then
                         cnote("@b[SlopeTrain] @RAll slopes completed. Waiting for repop...")
@@ -557,7 +545,6 @@ function enter_slope(name, line, wildcards)
         return
     end
 
-    -- Check if slope is already completed
     if is_slope_completed(name) then
         cnote("@b[SlopeTrain] @R" .. name:sub(1,1):upper() .. name:sub(2) .. " slope already completed this repop. Waiting for repop...")
         return
@@ -576,8 +563,6 @@ function move_next_slope_room()
     end
 
     local next_slope = SLOPE_CONFIG[current_slope].next
-
-    -- Check if next slope is already completed
     if is_slope_completed(next_slope) then
         if all_slopes_completed() then
             cnote("@b[SlopeTrain] @RAll slopes completed this repop. Waiting for repop...")
@@ -593,7 +578,7 @@ function move_next_slope_room()
 end
 
 function slope_success(direction)
-    if train_messages == nil or train_messages[direction] == nil then
+    if train_messages == nil or train_messages[direction] == nil or #train_messages[direction] == 0 then
         train_messages = get_default_messages()
     end
     if chan == nil or chan == "" then
@@ -639,7 +624,6 @@ function slope_repop()
         slope_status[current_slope].visited = true
     end
 
-    -- Only send repop message if enabled
     if not slope_repop_enabled then
         return
     end
@@ -1069,7 +1053,7 @@ end
   </script>
 
   <triggers>
-    <!-- Trigger for leader entering slingshot -->
+    <!-- Follow-the-leader: auto-follow group leader into Icefall areas -->
     <trigger
       match="^([^ ]+) enters a gigantic slingshot, ready for another trip down the Avalanche Slalom!$"
       name="slingshot"
@@ -1081,9 +1065,6 @@ end
       sequence="100"
       script="follow_the_leader"
     />
-
-
-    <!-- Trigger for Iced Fish Hatchery -->
     <trigger
       match="^([^ ]+) enters Iced Fish Hatchery.$"
       name="hatchery"
@@ -1095,8 +1076,6 @@ end
       sequence="100"
       script="follow_the_leader"
     />
-
-    <!-- Trigger for Chutes and Empty Bladders -->
     <trigger
       match="^([^ ]+) enters Chutes and Empty Bladders.$"
       name="chutes"
@@ -1108,8 +1087,6 @@ end
       sequence="100"
       script="follow_the_leader"
     />
-
-    <!-- Trigger for King of the Kill -->
     <trigger
       match="^([^ ]+) enters King of the Kill.$"
       name="kill"
@@ -1121,8 +1098,8 @@ end
       sequence="100"
       script="follow_the_leader"
     />
-	
-    <!-- Trigger for expired pass -->
+
+    <!-- Pass expiration detection -->
     <trigger
       name="ExpiredPass"
       match="^A gruff ski patrol destroys your expired pass\!|You must have a ski pass in order to enter the powerup slopes\.$"
@@ -1135,7 +1112,7 @@ end
       script="expired_pass_action"
     />
 	
-    <!-- Trigger for repop -->
+    <!-- Slope repop detection -->
     <trigger
       name="Repop"
       match="^The Avalanche Slalom is covered with dry powder snow\.$"
