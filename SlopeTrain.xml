@@ -116,6 +116,7 @@ VAR_CURRENT_PASS = "current_pass"
 VAR_TRAIN_MSG = "train_msg"
 VAR_SLOPE_REPOP = "slope_repop_enabled"
 VAR_AUTO_BUY_PASS = "auto_buy_pass"
+VAR_AUTO_NEXT_SLOPE = "auto_next_slope"
 
 -- Character state constants
 CHAR_STATE_STANDING = 3
@@ -196,6 +197,7 @@ slope_repop_enabled = true
 chan = "gtell"
 current_pass = "onedaypass"
 auto_buy_pass_enabled = false
+auto_next_slope_enabled = false
 pending_pass_purchase = nil
 last_train_msg = nil
 
@@ -228,6 +230,9 @@ function load_state()
     local auto_buy = GetVariable(VAR_AUTO_BUY_PASS)
     auto_buy_pass_enabled = (auto_buy == "true")
 
+    local auto_next = GetVariable(VAR_AUTO_NEXT_SLOPE)
+    auto_next_slope_enabled = (auto_next == "true")
+
     local saved_msgs = GetVariable(VAR_TRAIN_MSG)
     if saved_msgs ~= nil then
         local ok, decoded = pcall(json.decode, saved_msgs)
@@ -252,6 +257,7 @@ function save_state()
     SetVariable(VAR_CURRENT_PASS, current_pass or "onedaypass")
     SetVariable(VAR_SLOPE_REPOP, tostring(slope_repop_enabled))
     SetVariable(VAR_AUTO_BUY_PASS, tostring(auto_buy_pass_enabled))
+    SetVariable(VAR_AUTO_NEXT_SLOPE, tostring(auto_next_slope_enabled))
     if train_messages ~= nil then
         SetVariable(VAR_TRAIN_MSG, json.encode(train_messages))
     end
@@ -409,8 +415,20 @@ function on_character_status_update(status)
 end
 
 function on_state_change(previous_state, new_state)
-    -- Currently no actions needed on state change
-    -- Hooks available: entering/exiting combat, etc.
+    -- Auto-advance to next slope when exiting combat at slope finish
+    if auto_next_slope_enabled and
+       previous_state == CHAR_STATE_FIGHTING and
+       new_state == CHAR_STATE_STANDING then
+        for direction, config in pairs(SLOPE_CONFIG) do
+            if room.id == config.finish then
+                local next_slope = config.next
+                Note("[SlopeTrain] Auto-advancing to " ..
+                     next_slope:sub(1,1):upper() .. next_slope:sub(2) .. " slope...")
+                Execute("mapper goto " .. SLOPE_CONFIG[next_slope].start)
+                return
+            end
+        end
+    end
 end
 
 --------------------------------------------------------------------------------
@@ -602,6 +620,16 @@ function toggle_auto_buy_pass()
     end
 end
 
+function toggle_auto_next_slope()
+    auto_next_slope_enabled = not auto_next_slope_enabled
+    save_state()
+    if auto_next_slope_enabled then
+        cnote("@b[SlopeTrain] Auto-next slope is now @GON")
+    else
+        cnote("@b[SlopeTrain] Auto-next slope is now @ROFF")
+    end
+end
+
 --------------------------------------------------------------------------------
 -- COMMANDS & UI
 --------------------------------------------------------------------------------
@@ -707,8 +735,10 @@ function alias_slopetrain(name, line, wildcards)
             toggle_pass_type()
         elseif subcmd == "autobuy" then
             toggle_auto_buy_pass()
+        elseif subcmd == "autonext" then
+            toggle_auto_next_slope()
         else
-            cnote("@b[SlopeTrain] Usage: slopetrain set [msg|pass|autobuy]")
+            cnote("@b[SlopeTrain] Usage: slopetrain set [msg|pass|autobuy|autonext]")
         end
     elseif cmd == "channel" then
         local channel = parts[1]
@@ -746,6 +776,7 @@ function show_helpfile()
     ColourNote("lightcyan", "", "slopetrain set msg        - ", "white", "", "Setup your own slope messages")
     ColourNote("lightcyan", "", "slopetrain set pass       - ", "white", "", "Toggle between type of pass")
     ColourNote("lightcyan", "", "slopetrain set autobuy    - ", "white", "", "Toggle auto-buy pass (default: off)")
+    ColourNote("lightcyan", "", "slopetrain set autonext   - ", "white", "", "Toggle auto-next slope (default: off)")
     ColourNote("lightcyan", "", "slopetrain repop          - ", "white", "", "Turn on/off the repop message")
     ColourNote("lightcyan", "", "slopetrain channel <chan> - ", "white", "", "Set repop channel: ", "cyan", "", chan or "gtell")
     ColourNote("white", "", "", "white", "", "")
@@ -763,14 +794,15 @@ end
 
 function show_status()
     cnote("@C+@W-------------------[@CSlopeTrain Status@W]--------------------@C+@w")
-    cnote("@WChannel:        @C" .. (chan or "gtell"))
-    cnote("@WPass Type:      @C" .. (current_pass or "onedaypass"))
-    cnote("@WAuto-Buy Pass:  " .. (auto_buy_pass_enabled and "@GON" or "@ROFF (notify only)"))
-    cnote("@WRepop Notify:   " .. (slope_repop_enabled and "@GON" or "@ROFF"))
-    cnote("@WGroup Leader:   " .. (is_group_leader and "@GYes" or "@RNo"))
-    cnote("@WLocation:       @C" .. get_location_status())
-    cnote("@WCurrent Room:   @C" .. tostring(room.id or "Unknown"))
-    cnote("@WPlayer Name:    @C" .. (player_name or "Unknown"))
+    cnote("@WChannel:         @C" .. (chan or "gtell"))
+    cnote("@WPass Type:       @C" .. (current_pass or "onedaypass"))
+    cnote("@WAuto-Buy Pass:   " .. (auto_buy_pass_enabled and "@GON" or "@ROFF (notify only)"))
+    cnote("@WAuto-Next Slope: " .. (auto_next_slope_enabled and "@GON" or "@ROFF"))
+    cnote("@WRepop Notify:    " .. (slope_repop_enabled and "@GON" or "@ROFF"))
+    cnote("@WGroup Leader:    " .. (is_group_leader and "@GYes" or "@RNo"))
+    cnote("@WLocation:        @C" .. get_location_status())
+    cnote("@WCurrent Room:    @C" .. tostring(room.id or "Unknown"))
+    cnote("@WPlayer Name:     @C" .. (player_name or "Unknown"))
     cnote("@C+@W-----------------------------------------------------------@C+@w")
 end
 
