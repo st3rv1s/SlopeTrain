@@ -201,6 +201,14 @@ auto_next_slope_enabled = false
 pending_pass_purchase = nil
 last_train_msg = nil
 
+-- Slope completion tracking (resets on repop)
+-- visited: entered any room on slope, started: entered start room, finished: entered finish room
+slope_status = {
+    east = { visited = false, started = false, finished = false },
+    south = { visited = false, started = false, finished = false },
+    west = { visited = false, started = false, finished = false }
+}
+
 --------------------------------------------------------------------------------
 -- UTILITY FUNCTIONS
 --------------------------------------------------------------------------------
@@ -225,7 +233,6 @@ function load_state()
 
     local repop = GetVariable(VAR_SLOPE_REPOP)
     slope_repop_enabled = (repop == nil) or (repop == "true")
-    EnableGroup("slopeRepop", slope_repop_enabled)
 
     local auto_buy = GetVariable(VAR_AUTO_BUY_PASS)
     auto_buy_pass_enabled = (auto_buy == "true")
@@ -261,6 +268,28 @@ function save_state()
     if train_messages ~= nil then
         SetVariable(VAR_TRAIN_MSG, json.encode(train_messages))
     end
+end
+
+function reset_slope_status()
+    slope_status = {
+        east = { visited = false, started = false, finished = false },
+        south = { visited = false, started = false, finished = false },
+        west = { visited = false, started = false, finished = false }
+    }
+end
+
+function is_slope_completed(direction)
+    local status = slope_status[direction]
+    return status and status.started and status.finished
+end
+
+function all_slopes_completed()
+    for direction, _ in pairs(SLOPE_CONFIG) do
+        if not is_slope_completed(direction) then
+            return false
+        end
+    end
+    return true
 end
 
 --------------------------------------------------------------------------------
@@ -319,7 +348,14 @@ function init_plugin()
 
     EnableTimer("timer_init_plugin", false)
     load_state()
+    reset_slope_status()  -- Reset slope tracking on connect/reconnect
     initialize_from_gmcp()
+
+    -- If we're mid-slope on connect, mark as visited (but not started)
+    local current_slope = get_current_slope()
+    if current_slope then
+        slope_status[current_slope].visited = true
+    end
 end
 
 function initialize_from_gmcp()
@@ -386,6 +422,18 @@ function on_room_change(previous_room_id, new_room_id)
         end
     end
 
+    -- Track slope completion status (for all players)
+    for direction, config in pairs(SLOPE_CONFIG) do
+        if new_room_id >= config.start and new_room_id <= config.finish then
+            slope_status[direction].visited = true
+            if new_room_id == config.start then
+                slope_status[direction].started = true
+            elseif new_room_id == config.finish then
+                slope_status[direction].finished = true
+            end
+        end
+    end
+
     -- Slope announcements only for group leader
     if not is_group_leader then
         return
@@ -423,6 +471,17 @@ function on_state_change(previous_state, new_state)
         for direction, config in pairs(SLOPE_CONFIG) do
             if room.id == config.finish then
                 local next_slope = config.next
+
+                -- Check if next slope is already completed
+                if is_slope_completed(next_slope) then
+                    if all_slopes_completed() then
+                        cnote("@b[SlopeTrain] @RAll slopes completed. Waiting for repop...")
+                    else
+                        cnote("@b[SlopeTrain] @RAuto-next: " .. next_slope:sub(1,1):upper() .. next_slope:sub(2) .. " already done. Try manually.")
+                    end
+                    return
+                end
+
                 Note("[SlopeTrain] Auto-advancing to " ..
                      next_slope:sub(1,1):upper() .. next_slope:sub(2) .. " slope...")
                 Execute("mapper goto " .. SLOPE_CONFIG[next_slope].start)
@@ -475,6 +534,12 @@ function enter_slope(name, line, wildcards)
         return
     end
 
+    -- Check if slope is already completed
+    if is_slope_completed(name) then
+        cnote("@b[SlopeTrain] @R" .. name:sub(1,1):upper() .. name:sub(2) .. " slope already completed this repop. Waiting for repop...")
+        return
+    end
+
     Execute("mapper goto " .. config.start)
 end
 
@@ -488,6 +553,17 @@ function move_next_slope_room()
     end
 
     local next_slope = SLOPE_CONFIG[current_slope].next
+
+    -- Check if next slope is already completed
+    if is_slope_completed(next_slope) then
+        if all_slopes_completed() then
+            cnote("@b[SlopeTrain] @RAll slopes completed this repop. Waiting for repop...")
+        else
+            cnote("@b[SlopeTrain] @R" .. next_slope:sub(1,1):upper() .. next_slope:sub(2) .. " slope already completed. Try a different slope.")
+        end
+        return
+    end
+
     Note("[SlopeTrain] Moving from " .. current_slope:sub(1,1):upper() .. current_slope:sub(2) ..
          " to " .. next_slope:sub(1,1):upper() .. next_slope:sub(2) .. " slope...")
     Execute("mapper goto " .. SLOPE_CONFIG[next_slope].start)
@@ -529,6 +605,22 @@ function repeat_train_direction()
 end
 
 function slope_repop()
+    -- Check if we're currently mid-slope before resetting
+    local current_slope = get_current_slope()
+
+    -- Reset slope completion tracking on repop
+    reset_slope_status()
+
+    -- If we were mid-slope, mark as visited (but not started, since we didn't enter from start)
+    if current_slope then
+        slope_status[current_slope].visited = true
+    end
+
+    -- Only send repop message if enabled
+    if not slope_repop_enabled then
+        return
+    end
+
     if not chan or chan == "" then
         ColourNote("red", "", "SlopeTrain: Channel is not set. Use 'slopetrain channel' to set one.")
         return
@@ -698,7 +790,6 @@ end
 
 function toggle_slope_repop()
     slope_repop_enabled = not slope_repop_enabled
-    EnableGroup("slopeRepop", slope_repop_enabled)
     save_state()
     if slope_repop_enabled then
         cnote("@b[SlopeTrain] Repop message is now @GON")
@@ -794,7 +885,7 @@ function show_helpfile()
 end
 
 function show_status()
-    cnote("@C+@W-------------------[@CSlopeTrain Status@W]--------------------@C+@w")
+    cnote("@C+@W--------------------[@CSlopeTrain Status@W]--------------------@C+@w")
     cnote("@WChannel:         @C" .. (chan or "gtell"))
     cnote("@WPass Type:       @C" .. (current_pass or "onedaypass"))
     cnote("@WAuto-Buy Pass:   " .. (auto_buy_pass_enabled and "@GON" or "@ROFF (notify only)"))
@@ -804,6 +895,20 @@ function show_status()
     cnote("@WLocation:        @C" .. get_location_status())
     cnote("@WCurrent Room:    @C" .. tostring(room.id or "Unknown"))
     cnote("@WPlayer Name:     @C" .. (player_name or "Unknown"))
+    cnote("@C+@W----------------------[@CSlope Status@W]-----------------------@C+@w")
+    -- Use ipairs with explicit array for deterministic order: East, South, West
+    for _, direction in ipairs({"east", "south", "west"}) do
+        local status = slope_status[direction]
+        local display_dir = direction:sub(1,1):upper() .. direction:sub(2)
+        local label = string.format("%-16s", display_dir .. ":")
+        if is_slope_completed(direction) then
+            cnote("@W" .. label .. " @GCompleted")
+        elseif status.visited then
+            cnote("@W" .. label .. " @YIn Progress")
+        else
+            cnote("@W" .. label .. " @CAvailable")
+        end
+    end
     cnote("@C+@W-----------------------------------------------------------@C+@w")
 end
 
@@ -968,7 +1073,7 @@ end
       name="Repop"
       match="^The Avalanche Slalom is covered with dry powder snow\.$"
       enabled="y"
-      group="slopeRepop"
+      group="slopeTrain"
       regexp="y"
       send_to="12"
       ignore_case="y"
