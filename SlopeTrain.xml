@@ -415,8 +415,9 @@ function on_character_status_update(status)
 end
 
 function on_state_change(previous_state, new_state)
-    -- Auto-advance to next slope when exiting combat at slope finish
+    -- Auto-advance to next slope when exiting combat at slope finish (leader only)
     if auto_next_slope_enabled and
+       is_group_leader and
        previous_state == CHAR_STATE_FIGHTING and
        new_state == CHAR_STATE_STANDING then
         for direction, config in pairs(SLOPE_CONFIG) do
