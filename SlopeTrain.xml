@@ -230,7 +230,6 @@ function initialize_from_gmcp()
         room.name = room_info.name
         room.zone = room_info.zone
         is_in_icefall = (room.zone == "icefall")
-        on_slope = (room.id ~= nil and slope_rooms[room.id]) or false
     end
 
     -- Character status (with nil checks)
@@ -417,7 +416,6 @@ character = {
 is_group_leader = false
 is_in_icefall = false
 player_name = ""
-on_slope = false
 slope_repop_enabled = true
 chan = "gtell"
 current_pass = "onedaypass"
@@ -441,6 +439,44 @@ ROOM_SLOPE_EAST_END = 38823
 ROOM_SLOPE_SOUTH_END = 38834
 ROOM_SLOPE_WEST_END = 38845
 
+--
+-- Determine which slope the player is currently on (if any)
+-- Returns: "east", "south", "west", or nil
+--
+function get_current_slope()
+    if room.id == nil then
+        return nil
+    end
+
+    -- Check each slope range (inclusive)
+    if room.id >= ROOM_SLOPE_EAST_START and room.id <= ROOM_SLOPE_EAST_END then
+        return "east"
+    elseif room.id >= ROOM_SLOPE_SOUTH_START and room.id <= ROOM_SLOPE_SOUTH_END then
+        return "south"
+    elseif room.id >= ROOM_SLOPE_WEST_START and room.id <= ROOM_SLOPE_WEST_END then
+        return "west"
+    end
+
+    return nil
+end
+
+--
+-- Get location status for display
+-- Returns: "Not in Icefall", "East Slope", "South Slope", "West Slope", or "Icefall (not on slope)"
+--
+function get_location_status()
+    if not is_in_icefall then
+        return "@RNot in Icefall"
+    end
+
+    local slope = get_current_slope()
+    if slope then
+        return slope:sub(1,1):upper() .. slope:sub(2) .. " Slope"
+    else
+        return "Icefall (not on slope)"
+    end
+end
+
 slope_directions = {
 	slingshot = "enter slingshot",
 	kill = "west",
@@ -453,14 +489,6 @@ slope_exits = {
 	east = ROOM_SLOPE_EAST_START,
 	south = ROOM_SLOPE_SOUTH_START,
 }
-
-slope_rooms = {}
-
-for i = 38814, 38845 do
-	if i ~= 38824 and i ~= 38835 then
-		slope_rooms[i] = true
-	end
-end
 
 -- train_messages is loaded via load_state() in OnPluginInstall
 
@@ -501,7 +529,6 @@ function on_room_info_update(room_info)
 
     -- Update convenience flags with nil safety
     is_in_icefall = (room.zone == "icefall")
-    on_slope = (room.id ~= nil and slope_rooms[room.id]) or false
 
     -- Only trigger changes if previously initialized (not nil)
     if previous_room_id ~= nil and previous_room_id ~= room.id then
@@ -601,8 +628,8 @@ slope_start_rooms = {
 }
 
 function enter_slope(name, line, wildcards)
-    if character.state == char_state_fighting then
-        Note("[SlopeTrain] You're in combat. Movement blocked.")
+    if character.state == nil or character.state == char_state_fighting then
+        Note("[SlopeTrain] " .. (character.state == nil and "State unknown." or "In combat.") .. " Movement blocked.")
         return
     end
 
@@ -617,32 +644,28 @@ function enter_slope(name, line, wildcards)
     Execute("mapper goto " .. target_room)
 end
 
-function get_slope_direction(room)
-  for dir, num in pairs(slope_exits) do
-    if num == room then
-      return dir
-    end
-  end
-  return nil
-end
-
 function move_next_slope_room()
     -- Move to the next slope in order: east -> south -> west -> east (cycle)
-    -- Only works when at the last room of a slope
+    -- Works from any room on a slope
 
-    if room.id == ROOM_SLOPE_EAST_END then
-        Note("[SlopeTrain] East slope complete. Moving to South slope...")
-        Execute("mapper goto " .. ROOM_SLOPE_SOUTH_START)
-    elseif room.id == ROOM_SLOPE_SOUTH_END then
-        Note("[SlopeTrain] South slope complete. Moving to West slope...")
-        Execute("mapper goto " .. ROOM_SLOPE_WEST_START)
-    elseif room.id == ROOM_SLOPE_WEST_END then
-        Note("[SlopeTrain] West slope complete. Moving to East slope...")
-        Execute("mapper goto " .. ROOM_SLOPE_EAST_START)
-    else
-        Note("[SlopeTrain] You must be at the end of a slope to use this command.")
+    local current_slope = get_current_slope()
+
+    if current_slope == nil then
+        Note("[SlopeTrain] You must be on a slope to use this command.")
         Note("[SlopeTrain] Current room: " .. tostring(room.id or "Unknown"))
-        Note("[SlopeTrain] End rooms: East=" .. ROOM_SLOPE_EAST_END .. ", South=" .. ROOM_SLOPE_SOUTH_END .. ", West=" .. ROOM_SLOPE_WEST_END)
+        return
+    end
+
+    -- Cycle: east -> south -> west -> east
+    if current_slope == "east" then
+        Note("[SlopeTrain] Moving from East to South slope...")
+        Execute("mapper goto " .. ROOM_SLOPE_SOUTH_START)
+    elseif current_slope == "south" then
+        Note("[SlopeTrain] Moving from South to West slope...")
+        Execute("mapper goto " .. ROOM_SLOPE_WEST_START)
+    elseif current_slope == "west" then
+        Note("[SlopeTrain] Moving from West to East slope...")
+        Execute("mapper goto " .. ROOM_SLOPE_EAST_START)
     end
 end
 
@@ -877,8 +900,7 @@ function show_status()
     cnote("@WAuto-Buy Pass:  " .. (auto_buy_pass_enabled and "@GON" or "@ROFF (notify only)"))
     cnote("@WRepop Notify:   " .. (slope_repop_enabled and "@GON" or "@ROFF"))
     cnote("@WGroup Leader:   " .. (is_group_leader and "@GYes" or "@RNo"))
-    cnote("@WIn Icefall:     " .. ((is_in_icefall == true) and "@GYes" or "@RNo"))
-    cnote("@WOn Slope:       " .. ((on_slope == true) and "@GYes" or "@RNo"))
+    cnote("@WLocation:       @C" .. get_location_status())
     cnote("@WCurrent Room:   @C" .. tostring(room.id or "Unknown"))
     cnote("@WPlayer Name:    @C" .. (player_name or "Unknown"))
     cnote("@C+@W-----------------------------------------------------------@C+@w")
