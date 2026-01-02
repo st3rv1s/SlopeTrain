@@ -8,7 +8,7 @@
     save_state="y"
     date_written="2025-3-24 17:59:57"
     requires="5.07"
-    version="1.28"
+    version="1.29"
   >
   </plugin>
 
@@ -556,25 +556,38 @@ end
 function move_next_slope_room()
     local current_slope = get_current_slope()
 
-    if current_slope == nil then
-        Note("[SlopeTrain] You must be on a slope to use this command.")
-        Note("[SlopeTrain] Current room: " .. tostring(room.id or "Unknown"))
+    if not current_slope then
+        Note("[SlopeTrain] You must be on a slope.")
         return
     end
 
-    local next_slope = SLOPE_CONFIG[current_slope].next
-    if is_slope_completed(next_slope) then
-        if all_slopes_completed() then
-            cnote("@b[SlopeTrain] @RAll slopes completed this repop. Waiting for repop...")
-        else
-            cnote("@b[SlopeTrain] @R" .. next_slope:sub(1,1):upper() .. next_slope:sub(2) .. " slope already completed. Try a different slope.")
+    local finish_room = SLOPE_CONFIG[current_slope].finish
+
+    if room.id == finish_room then
+        local next_slope = SLOPE_CONFIG[current_slope].next
+        if is_slope_completed(next_slope) then
+            if all_slopes_completed() then
+                cnote("@b[SlopeTrain] @RAll slopes completed this repop. Waiting for repop...")
+            else
+                cnote("@b[SlopeTrain] @R" .. next_slope:sub(1,1):upper() .. next_slope:sub(2) .. " slope already completed. Try a different slope.")
+            end
+            return
         end
-        return
-    end
 
-    Note("[SlopeTrain] Moving from " .. current_slope:sub(1,1):upper() .. current_slope:sub(2) ..
-         " to " .. next_slope:sub(1,1):upper() .. next_slope:sub(2) .. " slope...")
-    Execute("mapper goto " .. SLOPE_CONFIG[next_slope].start)
+        Note("[SlopeTrain] Moving from " .. current_slope:sub(1,1):upper() .. current_slope:sub(2) ..
+             " finish to " .. next_slope:sub(1,1):upper() .. next_slope:sub(2) .. " start...")
+        Execute("mapper goto " .. SLOPE_CONFIG[next_slope].start)
+    else
+        local exits = gmcp("room.info.exits")
+        if exits and type(exits) == "table" then
+            for dir,_ in pairs(exits) do
+                SendNoEcho(dir)
+                break
+            end
+        else
+            Note("[SlopeTrain] No exits found to move forward.")
+        end
+    end
 end
 
 function slope_success(direction)
@@ -902,7 +915,6 @@ end
 
 function show_helpfile()
     cnote("")
-    cnote("@W                 @RIMPORTANT: SETUP YOUR CEXITS!                 @w")
     cnote("@C+@W-------------------[@CSlopeTrain  Helpfile@W]--------------------@C+@w")
     ColourNote("white", "", "", "white", "", "")
     ColourNote("lightcyan", "", "slopetrain                - ", "white", "", "Shows this helpfile")
@@ -1127,5 +1139,3 @@ end
   </triggers>
 
 </muclient>
-
-
