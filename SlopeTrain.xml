@@ -8,7 +8,7 @@
     save_state="y"
     date_written="2025-3-24 17:59:57"
     requires="5.07"
-    version="1.29"
+    version="1.30"
   >
   </plugin>
 
@@ -112,6 +112,8 @@ VAR_SLOPE_REPOP = "slope_repop_enabled"
 VAR_AUTO_BUY_PASS = "auto_buy_pass"
 VAR_AUTO_NEXT_SLOPE = "auto_next_slope"
 VAR_REPOP_MSG = "repop_msg"
+-- Delay at Pinnacle before proceeding to slope (seconds)
+PINNACLE_DELAY = 1
 
 -- Character state constants
 CHAR_STATE_STANDING = 3
@@ -214,6 +216,10 @@ slope_status = {
 --------------------------------------------------------------------------------
 -- UTILITY FUNCTIONS
 --------------------------------------------------------------------------------
+
+function capitalize(str)
+    return str:sub(1,1):upper() .. str:sub(2)
+end
 
 function gmcp(s)
     local ret, datastring = CallPlugin(PLUGIN_ID_GMCP_HANDLER, "gmcpdata_as_string", s)
@@ -484,18 +490,8 @@ function on_state_change(previous_state, new_state)
         for direction, config in pairs(SLOPE_CONFIG) do
             if room.id == config.finish then
                 local next_slope = config.next
-                if is_slope_completed(next_slope) then
-                    if all_slopes_completed() then
-                        cnote("@b[SlopeTrain] @RAll slopes completed. Waiting for repop...")
-                    else
-                        cnote("@b[SlopeTrain] @RAuto-next: " .. next_slope:sub(1,1):upper() .. next_slope:sub(2) .. " already done. Try manually.")
-                    end
-                    return
-                end
-
-                Note("[SlopeTrain] Auto-advancing to " ..
-                     next_slope:sub(1,1):upper() .. next_slope:sub(2) .. " slope...")
-                Execute("mapper goto " .. SLOPE_CONFIG[next_slope].start)
+                Note("[SlopeTrain] Auto-advancing to " .. capitalize(next_slope) .. " slope...")
+                navigate_to_slope(next_slope)
                 return
             end
         end
@@ -527,30 +523,75 @@ function get_location_status()
 
     local slope = get_current_slope()
     if slope then
-        return slope:sub(1,1):upper() .. slope:sub(2) .. " Slope"
+        return capitalize(slope) .. " Slope"
     else
         return "Icefall (not on slope)"
     end
 end
 
-function enter_slope(name, line, wildcards)
+-- Navigate to a slope's start room via Pinnacle hub
+-- direction: "east", "south", or "west"
+function navigate_to_slope(direction)
     if character.state == nil or character.state == CHAR_STATE_FIGHTING then
         Note("[SlopeTrain] " .. (character.state == nil and "State unknown." or "In combat.") .. " Movement blocked.")
         return
     end
 
-    local config = SLOPE_CONFIG[name]
+    local config = SLOPE_CONFIG[direction]
     if not config then
-        Note("[SlopeTrain] Unknown direction: " .. name)
+        Note("[SlopeTrain] Unknown direction: " .. direction)
         return
     end
 
-    if is_slope_completed(name) then
-        cnote("@b[SlopeTrain] @R" .. name:sub(1,1):upper() .. name:sub(2) .. " slope already completed this repop. Waiting for repop...")
+    if is_slope_completed(direction) then
+        if all_slopes_completed() then
+            cnote("@b[SlopeTrain] @RAll slopes completed. Waiting for repop...")
+        else
+            cnote("@b[SlopeTrain] @R" .. capitalize(direction) .. " slope already completed.")
+        end
         return
     end
 
-    Execute("mapper goto " .. config.start)
+    wait.make(function()
+        if room.id ~= ROOM_PINNACLE then
+            Note("[SlopeTrain] Navigating to Pinnacle...")
+            Execute("mapper goto " .. ROOM_PINNACLE)
+
+            -- Poll for arrival
+            local timeout = 5
+            local interval = 0.2
+            local waited = 0
+            while room.id ~= ROOM_PINNACLE and waited < timeout do
+                wait.time(interval)
+                waited = waited + interval
+            end
+
+            if room.id ~= ROOM_PINNACLE then
+                Note("[SlopeTrain] Navigation to Pinnacle timed out.")
+                return
+            end
+        end
+
+        Note("[SlopeTrain] At Pinnacle. Waiting " .. PINNACLE_DELAY .. "s...")
+        wait.time(PINNACLE_DELAY)
+
+        -- Final checks before proceeding
+        if room.id ~= ROOM_PINNACLE then
+            Note("[SlopeTrain] Navigation cancelled - moved away from Pinnacle.")
+            return
+        end
+        if character.state == CHAR_STATE_FIGHTING then
+            Note("[SlopeTrain] Navigation cancelled - in combat.")
+            return
+        end
+
+        Note("[SlopeTrain] Proceeding to " .. capitalize(direction) .. " slope...")
+        Execute("mapper goto " .. config.start)
+    end)
+end
+
+function enter_slope(name, line, wildcards)
+    navigate_to_slope(name)
 end
 
 function move_next_slope_room()
@@ -565,18 +606,7 @@ function move_next_slope_room()
 
     if room.id == finish_room then
         local next_slope = SLOPE_CONFIG[current_slope].next
-        if is_slope_completed(next_slope) then
-            if all_slopes_completed() then
-                cnote("@b[SlopeTrain] @RAll slopes completed this repop. Waiting for repop...")
-            else
-                cnote("@b[SlopeTrain] @R" .. next_slope:sub(1,1):upper() .. next_slope:sub(2) .. " slope already completed. Try a different slope.")
-            end
-            return
-        end
-
-        Note("[SlopeTrain] Moving from " .. current_slope:sub(1,1):upper() .. current_slope:sub(2) ..
-             " finish to " .. next_slope:sub(1,1):upper() .. next_slope:sub(2) .. " start...")
-        Execute("mapper goto " .. SLOPE_CONFIG[next_slope].start)
+        navigate_to_slope(next_slope)
     else
         local exits = gmcp("room.info.exits")
         if exits and type(exits) == "table" then
@@ -962,7 +992,7 @@ function show_status()
     -- Use ipairs with explicit array for deterministic order: East, South, West
     for _, direction in ipairs({"east", "south", "west"}) do
         local status = slope_status[direction]
-        local display_dir = direction:sub(1,1):upper() .. direction:sub(2)
+        local display_dir = capitalize(direction)
         local label = string.format("%-16s", display_dir .. ":")
         if is_slope_completed(direction) then
             cnote("@W" .. label .. " @GCompleted")
