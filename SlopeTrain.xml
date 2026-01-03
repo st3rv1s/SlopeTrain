@@ -1,7 +1,7 @@
 <muclient>
   <plugin
     name="SlopeTrain"
-    author="Kanaye & Deathr"
+    author="Kanaye and Deathr"
     id="3668d613691c941bb5f2478c"
     language="Lua"
     purpose="A plugin to help you lead a slope train"
@@ -1171,5 +1171,6 @@ end
   </triggers>
 
 </muclient>
+
 
 
