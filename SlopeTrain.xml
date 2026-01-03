@@ -8,7 +8,7 @@
     save_state="y"
     date_written="2025-3-24 17:59:57"
     requires="5.07"
-    version="1.30"
+    version="1.31r"
   >
   </plugin>
 
@@ -33,7 +33,7 @@
   <aliases>
     <!-- Slope navigation: icee/ices/icew navigate to East/South/West slopes -->
     <alias
-      match="^ices$"
+      match="^ifs$"
       name="south"
       enabled="y"
       regexp="y"
@@ -42,7 +42,7 @@
       script="enter_slope"
     />
     <alias
-      match="^icee$"
+      match="^ife$"
       name="east"
       enabled="y"
       regexp="y"
@@ -51,7 +51,7 @@
       script="enter_slope"
     />
     <alias
-      match="^icew$"
+      match="^ifw$"
       name="west"
       enabled="y"
       regexp="y"
@@ -70,7 +70,7 @@
     />
 
     <alias
-      match="^icenxt$"
+      match="^ifx$"
       enabled="y"
       regexp="y"
       sequence="100"
@@ -78,7 +78,7 @@
     />
 
     <alias
-      match="repdir"
+      match="ifrd"
       enabled="y"
       sequence="99"
       script="repeat_train_direction"
@@ -962,21 +962,22 @@ function show_helpfile()
     ColourNote("lightcyan", "", "slopetrain set autobuy    - ", "white", "", "Toggle auto-buy pass (default: off)")
     ColourNote("lightcyan", "", "slopetrain set autonext   - ", "white", "", "Toggle auto-next slope (default: off)")
     ColourNote("lightcyan", "", "slopetrain repop          - ", "white", "", "Turn on/off the repop message")
-    ColourNote("lightcyan", "", "slopetrain channel <chan> - ", "white", "", "Set repop channel: ", "cyan", "", chan or "gtell")
+    ColourNote("lightcyan", "", "slopetrain channel <chan> - ", "white", "", "Set repop channel")
     ColourNote("white", "", "", "white", "", "")
     cnote("@C+@W-------------------[@CSlopeTrain Commands@W]---------------------@C+@w")
     ColourNote("white", "", "", "white", "", "")
-    ColourNote("lightcyan", "", "icee                      - ", "white", "", "Move the train to the East slope")
-    ColourNote("lightcyan", "", "ices                      - ", "white", "", "Move the train to the South slope")
-    ColourNote("lightcyan", "", "icew                      - ", "white", "", "Move the train to the West slope")
-    ColourNote("lightcyan", "", "icenxt                    - ", "white", "", "Move to the next slope")
-    ColourNote("lightcyan", "", "repdir                    - ", "white", "", "Manually repeat the last direction")
+    ColourNote("lightcyan", "", "ife                       - ", "white", "", "Move the train to the East slope")
+    ColourNote("lightcyan", "", "ifs                       - ", "white", "", "Move the train to the South slope")
+    ColourNote("lightcyan", "", "ifw                       - ", "white", "", "Move the train to the West slope")
+    ColourNote("lightcyan", "", "ifx                       - ", "white", "", "Move to the next slope")
+    ColourNote("lightcyan", "", "ifrd                      - ", "white", "", "Manually repeat the last direction")
     ColourNote("white", "", "", "white", "", "")
     cnote("@C+@W-------------------[@CSlopeTrain Helpfile@W]---------------------@C+@w")
     cnote("")
 end
 
 function show_status()
+    cnote("")
     cnote("@C+@W--------------------[@CSlopeTrain Status@W]--------------------@C+@w")
     cnote("@WChannel:         @C" .. (chan or "gtell"))
     cnote("@WPass Type:       @C" .. (current_pass or "onedaypass"))
@@ -1003,6 +1004,7 @@ function show_status()
         end
     end
     cnote("@C+@W-----------------------------------------------------------@C+@w")
+	cnote("")
 end
 
 function reload_slopetrain()
