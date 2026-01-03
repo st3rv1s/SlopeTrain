@@ -979,6 +979,7 @@ end
 function show_status()
     cnote("")
     cnote("@C+@W--------------------[@CSlopeTrain Status@W]--------------------@C+@w")
+	cnote("")
     cnote("@WChannel:         @C" .. (chan or "gtell"))
     cnote("@WPass Type:       @C" .. (current_pass or "onedaypass"))
     cnote("@WAuto-Buy Pass:   " .. (auto_buy_pass_enabled and "@GON" or "@ROFF (notify only)"))
@@ -989,7 +990,9 @@ function show_status()
     cnote("@WLocation:        @C" .. get_location_status())
     cnote("@WCurrent Room:    @C" .. tostring(room.id or "Unknown"))
     cnote("@WPlayer Name:     @C" .. (player_name or "Unknown"))
+	cnote("")
     cnote("@C+@W----------------------[@CSlope Status@W]-----------------------@C+@w")
+	cnote("")
     -- Use ipairs with explicit array for deterministic order: East, South, West
     for _, direction in ipairs({"east", "south", "west"}) do
         local status = slope_status[direction]
@@ -1003,6 +1006,7 @@ function show_status()
             cnote("@W" .. label .. " @CAvailable")
         end
     end
+	cnote("")
     cnote("@C+@W-----------------------------------------------------------@C+@w")
 	cnote("")
 end
@@ -1171,6 +1175,7 @@ end
   </triggers>
 
 </muclient>
+
 
 
 
