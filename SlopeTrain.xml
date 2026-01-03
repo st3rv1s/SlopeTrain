@@ -8,7 +8,7 @@
     save_state="y"
     date_written="2025-3-24 17:59:57"
     requires="5.07"
-    version="1.31r"
+    version="1.31"
   >
   </plugin>
 
@@ -1171,4 +1171,5 @@ end
   </triggers>
 
 </muclient>
+
 
