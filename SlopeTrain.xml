@@ -78,7 +78,7 @@
     />
 
     <alias
-      match="ifrd"
+      match="ifr"
       enabled="y"
       sequence="99"
       script="repeat_train_direction"
@@ -970,7 +970,7 @@ function show_helpfile()
     ColourNote("lightcyan", "", "ifs                       - ", "white", "", "Move the train to the South slope")
     ColourNote("lightcyan", "", "ifw                       - ", "white", "", "Move the train to the West slope")
     ColourNote("lightcyan", "", "ifx                       - ", "white", "", "Move to the next slope")
-    ColourNote("lightcyan", "", "ifrd                      - ", "white", "", "Manually repeat the last direction")
+    ColourNote("lightcyan", "", "ifr                       - ", "white", "", "Manually repeat the last direction")
     ColourNote("white", "", "", "white", "", "")
     cnote("@C+@W-------------------[@CSlopeTrain Helpfile@W]---------------------@C+@w")
     cnote("")
@@ -1171,6 +1171,7 @@ end
   </triggers>
 
 </muclient>
+
 
 
 
