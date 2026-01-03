@@ -945,16 +945,13 @@ end
 
 function show_helpfile()
     cnote("")
-    cnote("@C+@W-------------------[@CSlopeTrain  Helpfile@W]--------------------@C+@w")
-    ColourNote("white", "", "", "white", "", "")
+    cnote("@C+@W---------------------[@CSlopeTrain Helpfile@W]-----------------------@C+@w")
     ColourNote("lightcyan", "", "slopetrain                - ", "white", "", "Shows this helpfile")
     ColourNote("lightcyan", "", "slopetrain help           - ", "white", "", "Shows this helpfile")
     ColourNote("lightcyan", "", "slopetrain reload         - ", "white", "", "Reload the plugin")
     ColourNote("lightcyan", "", "slopetrain update check   - ", "white", "", "Check your current version")
     ColourNote("lightcyan", "", "slopetrain update install - ", "white", "", "Install latest version")
-    ColourNote("white", "", "", "white", "", "")
-    cnote("@C+@W-------------------[@CSlopeTrain Setup@W]------------------------@C+@w")
-    ColourNote("white", "", "", "white", "", "")
+    cnote("@C+@W---------------------[@CSlopeTrain Setup@W]--------------------------@C+@w")
     ColourNote("lightcyan", "", "slopetrain status         - ", "white", "", "Show all current settings")
     ColourNote("lightcyan", "", "slopetrain set msg        - ", "white", "", "Setup your own slope messages")
     ColourNote("lightcyan", "", "slopetrain set repop      - ", "white", "", "Setup your own repop messages")
@@ -963,23 +960,19 @@ function show_helpfile()
     ColourNote("lightcyan", "", "slopetrain set autonext   - ", "white", "", "Toggle auto-next slope (default: off)")
     ColourNote("lightcyan", "", "slopetrain repop          - ", "white", "", "Turn on/off the repop message")
     ColourNote("lightcyan", "", "slopetrain channel <chan> - ", "white", "", "Set repop channel")
-    ColourNote("white", "", "", "white", "", "")
-    cnote("@C+@W-------------------[@CSlopeTrain Commands@W]---------------------@C+@w")
-    ColourNote("white", "", "", "white", "", "")
+    cnote("@C+@W---------------------[@CSlopeTrain Commands@W]-----------------------@C+@w")
     ColourNote("lightcyan", "", "ife                       - ", "white", "", "Move the train to the East slope")
     ColourNote("lightcyan", "", "ifs                       - ", "white", "", "Move the train to the South slope")
     ColourNote("lightcyan", "", "ifw                       - ", "white", "", "Move the train to the West slope")
     ColourNote("lightcyan", "", "ifx                       - ", "white", "", "Move to the next slope")
     ColourNote("lightcyan", "", "ifr                       - ", "white", "", "Manually repeat the last direction")
-    ColourNote("white", "", "", "white", "", "")
-    cnote("@C+@W-------------------[@CSlopeTrain Helpfile@W]---------------------@C+@w")
+    cnote("@C+@W---------------------[@CSlopeTrain Helpfile@W]-----------------------@C+@w")
     cnote("")
 end
 
 function show_status()
     cnote("")
-    cnote("@C+@W--------------------[@CSlopeTrain Status@W]--------------------@C+@w")
-	cnote("")
+    cnote("@C+@W-----------------------[@CSlopeTrain Status@W]-----------------------@C+@w")
     cnote("@WChannel:         @C" .. (chan or "gtell"))
     cnote("@WPass Type:       @C" .. (current_pass or "onedaypass"))
     cnote("@WAuto-Buy Pass:   " .. (auto_buy_pass_enabled and "@GON" or "@ROFF (notify only)"))
@@ -990,9 +983,7 @@ function show_status()
     cnote("@WLocation:        @C" .. get_location_status())
     cnote("@WCurrent Room:    @C" .. tostring(room.id or "Unknown"))
     cnote("@WPlayer Name:     @C" .. (player_name or "Unknown"))
-	cnote("")
-    cnote("@C+@W----------------------[@CSlope Status@W]-----------------------@C+@w")
-	cnote("")
+    cnote("@C+@W-----------------------[@CSlope Status@W]----------------------------@C+@w")
     -- Use ipairs with explicit array for deterministic order: East, South, West
     for _, direction in ipairs({"east", "south", "west"}) do
         local status = slope_status[direction]
@@ -1006,8 +997,7 @@ function show_status()
             cnote("@W" .. label .. " @CAvailable")
         end
     end
-	cnote("")
-    cnote("@C+@W-----------------------------------------------------------@C+@w")
+    cnote("@C+@W-----------------------------------------------------------------@C+@w")
 	cnote("")
 end
 
@@ -1175,8 +1165,3 @@ end
   </triggers>
 
 </muclient>
-
-
-
-
-
