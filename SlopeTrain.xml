@@ -8,7 +8,7 @@
     save_state="y"
     date_written="2025-3-24 17:59:57"
     requires="5.07"
-    version="1.31"
+    version="1.32"
   >
   </plugin>
 
@@ -31,7 +31,6 @@
   </timers>
 
   <aliases>
-    <!-- Slope navigation: icee/ices/icew navigate to East/South/West slopes -->
     <alias
       match="^ifs$"
       name="south"
@@ -610,7 +609,16 @@ function move_next_slope_room()
     else
         local exits = gmcp("room.info.exits")
         if exits and type(exits) == "table" then
+            local ldir = {
+                n = "north",
+                s = "south",
+                e = "east",
+                w = "west"
+            }
+
             for dir,_ in pairs(exits) do
+                local full = ldir[dir] or dir
+                Note("[SlopeTrain] Moving " .. full .. " to next room.")
                 SendNoEcho(dir)
                 break
             end
